@@ -57,6 +57,9 @@
 #ifndef SAFE_PRINT_STACK_SIZE
 #define SAFE_PRINT_STACK_SIZE (SAFE_PRINT_MAX_MSG_LEN * 2)
 #endif // SAFE_PRINT_STACK_SIZE
+#ifndef SAFE_PRINT_PRIORITY
+#define SAFE_PRINT_PRIORITY tskIDLE_PRIORITY
+#endif // SAFE_PRINT_PRIORITY
 
 /**
  * @brief Prints a formatted string to the specifed IO stream

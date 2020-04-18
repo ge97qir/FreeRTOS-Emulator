@@ -98,7 +98,7 @@ int safePrintInit(void)
 		return -1;
 
 	xTaskCreate(safePrintTask, "Print", SAFE_PRINT_STACK_SIZE, NULL,
-		    tskIDLE_PRIORITY, &safePrintTaskHandle);
+		    SAFE_PRINT_PRIORITY, &safePrintTaskHandle);
 
 	if (safePrintTaskHandle == NULL)
 		return -1;
