@@ -54,8 +54,8 @@
 #include "tracer.h"
 #endif
 
-static char *mq_one_name = "FreeRTOS_MQ_one_22";
-static char *mq_two_name = "FreeRTOS_MQ_two_22";
+static char *mq_one_name = "FreeRTOS_MQ_one_1";
+static char *mq_two_name = "FreeRTOS_MQ_two_1";
 aIO_handle_t mq_one = NULL;
 aIO_handle_t mq_two = NULL;
 aIO_handle_t udp_soc_one = NULL;
@@ -630,24 +630,34 @@ int main(int argc, char *argv[])
     //  TUM_Print.h, `prints` and `fprints` that work exactly the same as
     //  `printf` and `fprintf`. So you can read the documentation on these
     //  functions to understand the functionality.
-    if (safePrintInit()) {
-        PRINT_ERROR("Failed to init safe print");
-        goto err_init_safe_print;
-    }
 
     if (vInitDrawing(bin_folder_path)) {
         PRINT_ERROR("Failed to intialize drawing");
         goto err_init_drawing;
+    }
+    else {
+        prints("drawing");
     }
 
     if (vInitEvents()) {
         PRINT_ERROR("Failed to initialize events");
         goto err_init_events;
     }
+    else {
+        prints(", events");
+    }
 
     if (vInitAudio(bin_folder_path)) {
         PRINT_ERROR("Failed to initialize audio");
         goto err_init_audio;
+    }
+    else {
+        prints(", and audio\n");
+    }
+
+    if (safePrintInit()) {
+        PRINT_ERROR("Failed to init safe print");
+        goto err_init_safe_print;
     }
 
     atexit(aIODeinit);

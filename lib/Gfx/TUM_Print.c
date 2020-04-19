@@ -27,13 +27,27 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 #include "task.h"
+#include "semphr.h"
 
 #include "TUM_Print.h"
+#include "TUM_Utils.h"
 
 struct error_print_msg {
-	FILE *stream; // Either stdout, stderr or user defined file
+#ifdef SAFE_PRINT_DEBUG
+	UBaseType_t debug_id;
+#endif // SAFE_PRINT_DEBUG
+	FILE *__restrict stream; // Either stdout, stderr or user defined file
 	char msg[SAFE_PRINT_MAX_MSG_LEN];
 };
+
+char rbuf_buffer[sizeof(struct error_print_msg) *
+		 SAFE_PRINT_INPUT_BUFFER_COUNT] = { 0 };
+
+#ifdef SAFE_PRINT_DEBUG
+xSemaphoreHandle input_debug_count = NULL;
+#endif // SAFE_PRINT_DEBUG
+
+rbuf_handle_t input_rbuf = NULL;
 
 xQueueHandle safePrintQueue = NULL;
 xTaskHandle safePrintTaskHandle = NULL;
@@ -41,8 +55,7 @@ xTaskHandle safePrintTaskHandle = NULL;
 static void vfprints(FILE *__restrict __stream, const char *__format,
 		     va_list args)
 {
-	struct error_print_msg tmp_msg;
-
+    struct error_print_msg *tmp_msg;
 	if ((__stream == NULL) || (__format == NULL))
 		return;
 
@@ -52,11 +65,24 @@ static void vfprints(FILE *__restrict __stream, const char *__format,
 		return;
 	}
 
-	tmp_msg.stream = __stream;
-	vsnprintf((char *)tmp_msg.msg, SAFE_PRINT_MAX_MSG_LEN, __format,
-		  args);
+	tmp_msg = (struct error_print_msg *)rbuf_get_buffer(input_rbuf);
 
-	xQueueSend(safePrintQueue, &tmp_msg, 0);
+#ifdef SAFE_PRINT_DEBUG
+	if (xSemaphoreGive(input_debug_count) == pdTRUE)
+		tmp_msg->debug_id = uxSemaphoreGetCount(input_debug_count);
+	else
+		tmp_msg->debug_id = -1;
+#endif // SAFE_PRINT_DEBUG
+
+	if (tmp_msg == NULL)
+		return;
+
+	tmp_msg->stream = __stream;
+	vsnprintf((char *)tmp_msg->msg, SAFE_PRINT_MAX_MSG_LEN, __format, args);
+
+	xQueueSend(safePrintQueue, tmp_msg, 0);
+
+	rbuf_put_buffer(input_rbuf);
 }
 
 void fprints(FILE *__restrict __stream, const char *__format, ...)
@@ -77,7 +103,7 @@ void prints(const char *__format, ...)
 
 static void safePrintTask(void *pvParameters)
 {
-	static struct error_print_msg msgToPrint = { 0 };
+	struct error_print_msg msgToPrint = { 0 };
 
 	while (1) {
 		if (safePrintQueue)
@@ -102,6 +128,19 @@ int safePrintInit(void)
 
 	if (safePrintTaskHandle == NULL)
 		return -1;
+
+	input_rbuf = rbuf_init_static(sizeof(struct error_print_msg),
+			       SAFE_PRINT_INPUT_BUFFER_COUNT, (void *)rbuf_buffer);
+
+	if (input_rbuf == NULL)
+		return -1;
+
+#ifdef SAFE_PRINT_DEBUG
+	input_debug_count = xQueueCreateCountingSemaphore(0xFFFF, 0);
+
+	if (input_debug_count == NULL)
+		return -1;
+#endif // SAFE_PRINT_DEBUG
 
 	return 0;
 }

@@ -60,6 +60,11 @@
 #ifndef SAFE_PRINT_PRIORITY
 #define SAFE_PRINT_PRIORITY tskIDLE_PRIORITY
 #endif // SAFE_PRINT_PRIORITY
+#ifndef SAFE_PRINT_INPUT_BUFFER_COUNT
+#define SAFE_PRINT_INPUT_BUFFER_COUNT 10
+#endif // SAFE_PRINT_INPUT_BUFFER_COUNT
+//Uncomment to embed print debug ID's into messages
+// #define SAFE_PRINT_DEBUG
 
 /**
  * @brief Prints a formatted string to the specifed IO stream
