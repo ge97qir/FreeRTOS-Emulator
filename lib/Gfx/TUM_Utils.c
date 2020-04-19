@@ -61,7 +61,7 @@ char *getBinFolderPath(char *bin_path)
 // Ring buffer
 struct ring_buf {
 	void *buffer;
-    _Atomic int head; // Next free slot
+	_Atomic int head; // Next free slot
 	_Atomic int tail; // Last stored value
 	size_t size;
 	size_t item_size;
@@ -110,14 +110,13 @@ rbuf_handle_t rbuf_init(size_t item_size, size_t item_count)
 	if (ret == NULL)
 		goto err_alloc_rbuf;
 
-    atomic_store(&ret->head, 0);
-    atomic_store(&ret->tail, 0);
-
 	ret->buffer = calloc(item_count, item_size);
 
 	if (ret->buffer == NULL)
 		goto err_alloc_buffer;
 
+	ret->head = 0;
+	ret->tail = 0;
 	ret->size = item_count;
 	ret->item_size = item_size;
 
@@ -129,28 +128,29 @@ err_alloc_rbuf:
 	return NULL;
 }
 
-rbuf_handle_t rbuf_init_static(size_t item_size, size_t item_count, void *buffer)
+rbuf_handle_t rbuf_init_static(size_t item_size, size_t item_count,
+			       void *buffer)
 {
-    if(buffer == NULL)
-        goto err_buffer;
+	if (buffer == NULL)
+		goto err_buffer;
 
-    struct ring_buf *ret =
-        (struct ring_buf *)calloc(1, sizeof(struct ring_buf));
+	struct ring_buf *ret =
+		(struct ring_buf *)calloc(1, sizeof(struct ring_buf));
 
-    if(ret == NULL)
-        goto err_alloc_rbuf;
+	if (ret == NULL)
+		goto err_alloc_rbuf;
 
-    atomic_store(&ret->head, 0);
-    atomic_store(&ret->tail, 0);
-    ret->buffer = buffer;
+	ret->head = 0;
+	ret->tail = 0;
+	ret->buffer = buffer;
 	ret->size = item_count;
 	ret->item_size = item_size;
 
-    return (rbuf_handle_t) ret;
+	return (rbuf_handle_t)ret;
 
 err_alloc_rbuf:
 err_buffer:
-    return NULL;
+	return NULL;
 }
 
 //Destroy
@@ -234,7 +234,7 @@ int rbuf_fput(rbuf_handle_t rbuf, void *data)
 //Works similar to put except it just returns a pointer to the ringbuf slot
 void *rbuf_get_buffer(rbuf_handle_t rbuf)
 {
-    static const int increment = 1;
+	static const _Atomic int increment = 1;
 	if (rbuf == NULL)
 		return NULL;
 
@@ -247,7 +247,7 @@ void *rbuf_get_buffer(rbuf_handle_t rbuf)
 	if (rb->full)
 		return NULL;
 
-    int offset = __sync_fetch_and_add(&rb->head, increment);
+	int offset = __sync_fetch_and_add((int *)&rb->head, increment);
 
 	ret = rb->buffer + offset * rb->item_size;
 
