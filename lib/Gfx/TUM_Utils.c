@@ -29,6 +29,8 @@
 #include <stdatomic.h>
 #endif // _STDC_NO_ATOMICS__
 
+#include <pthread.h>
+
 #include "TUM_Utils.h"
 
 char *prepend_path(char *path, char *file)
@@ -60,6 +62,8 @@ char *getBinFolderPath(char *bin_path)
 
 // Ring buffer
 struct ring_buf {
+	pthread_mutex_t lock;
+    unsigned char is_static;
 	void *buffer;
 	_Atomic int head; // Next free slot
 	_Atomic int tail; // Last stored value
@@ -115,13 +119,20 @@ rbuf_handle_t rbuf_init(size_t item_size, size_t item_count)
 	if (ret->buffer == NULL)
 		goto err_alloc_buffer;
 
+    ret->is_static = 0;
 	ret->head = 0;
 	ret->tail = 0;
 	ret->size = item_count;
 	ret->item_size = item_size;
 
+	if (pthread_mutex_init(&ret->lock, NULL))
+		goto err_mutex;
+
 	return (rbuf_handle_t)ret;
 
+err_mutex:
+    if(!ret->is_static)
+	    free(ret->buffer);
 err_alloc_buffer:
 	free(ret);
 err_alloc_rbuf:
@@ -140,14 +151,20 @@ rbuf_handle_t rbuf_init_static(size_t item_size, size_t item_count,
 	if (ret == NULL)
 		goto err_alloc_rbuf;
 
+    ret->is_static = 1;
 	ret->head = 0;
 	ret->tail = 0;
 	ret->buffer = buffer;
 	ret->size = item_count;
 	ret->item_size = item_size;
 
+	if (pthread_mutex_init(&ret->lock, NULL))
+		goto err_mutex;
+
 	return (rbuf_handle_t)ret;
 
+err_mutex:
+	free(ret);
 err_alloc_rbuf:
 err_buffer:
 	return NULL;
@@ -159,8 +176,17 @@ void rbuf_free(rbuf_handle_t rbuf)
 	if (rbuf == NULL)
 		return;
 
-	free(CAST_RBUF(rbuf)->buffer);
-	free(CAST_RBUF(rbuf));
+	struct ring_buf *rb = CAST_RBUF(rbuf);
+
+	pthread_mutex_lock(&rb->lock);
+
+    if(!rb->is_static)
+	    free(rb->buffer);
+
+    pthread_mutex_unlock(&rb->lock);
+    pthread_mutex_destroy(&rb->lock);
+
+	free(rb);
 }
 
 //Reset
@@ -171,9 +197,13 @@ void rbuf_reset(rbuf_handle_t rbuf)
 
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
+	pthread_mutex_lock(&rb->lock);
+
 	rb->head = 0;
 	rb->tail = 0;
 	rb->full = 0;
+	
+    pthread_mutex_unlock(&rb->lock);
 }
 
 //Put pointer to buffer back
@@ -186,7 +216,11 @@ int rbuf_put_buffer(rbuf_handle_t rbuf)
 
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
+	pthread_mutex_lock(&rb->lock);
+
 	dec_buf(rb);
+
+	pthread_mutex_unlock(&rb->lock);
 
 	return 0;
 }
@@ -199,17 +233,25 @@ int rbuf_put(rbuf_handle_t rbuf, void *data)
 
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
+	pthread_mutex_lock(&rb->lock);
+
 	if (rb->buffer == NULL)
-		return -1;
+		goto err_fail;
 
 	if (rb->full)
-		return -1;
+		goto err_fail;
 
 	memcpy(rb->buffer + rb->head * rb->item_size, data, rb->item_size);
 
 	inc_buf(rb);
 
+	pthread_mutex_unlock(&rb->lock);
+
 	return 0;
+
+err_fail:
+	pthread_mutex_unlock(&rb->lock);
+	return -1;
 }
 
 //Add and overwrite
@@ -220,40 +262,61 @@ int rbuf_fput(rbuf_handle_t rbuf, void *data)
 
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
+	pthread_mutex_lock(&rb->lock);
+
 	if (rb->buffer == NULL)
-		return -1;
+        goto err_fail;
 
 	memcpy(rb->buffer + rb->head * rb->item_size, data, rb->item_size);
 
 	inc_buf(rb);
+	
+    pthread_mutex_unlock(&rb->lock);
 
 	return 0;
+
+err_fail:
+	pthread_mutex_unlock(&rb->lock);
+	return -1;
+}
+
+void rbuf_unlock(rbuf_handle_t rbuf)
+{
+	struct ring_buf *rb = CAST_RBUF(rbuf);
+   
+    pthread_mutex_unlock(&rb->lock);
 }
 
 //Get pointer to buffer slot
 //Works similar to put except it just returns a pointer to the ringbuf slot
+//Is returned in a locked state
 void *rbuf_get_buffer(rbuf_handle_t rbuf)
 {
 	static const _Atomic int increment = 1;
 	if (rbuf == NULL)
 		return NULL;
 
-	struct ring_buf *rb = CAST_RBUF(rbuf);
 	void *ret;
+	struct ring_buf *rb = CAST_RBUF(rbuf);
+
+	pthread_mutex_lock(&rb->lock);
 
 	if (rb->buffer == NULL)
-		return NULL;
+		goto err_fail;
 
 	if (rb->full)
-		return NULL;
+		goto err_fail;
 
 	int offset = __sync_fetch_and_add((int *)&rb->head, increment);
-
 	ret = rb->buffer + offset * rb->item_size;
 
 	inc_buf(rb);
 
 	return ret;
+
+err_fail:
+	pthread_mutex_unlock(&rb->lock);
+	return NULL;
 }
 
 //Get data
@@ -264,16 +327,25 @@ int rbuf_get(rbuf_handle_t rbuf, void *data)
 
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
+	pthread_mutex_lock(&rb->lock);
+
 	if (rb->buffer == NULL)
-		return -1;
+		goto err_fail;
 
 	if (rbuf_empty(rb))
-		return -1;
+		goto err_fail;
 
 	memcpy(data, rb->buffer + rb->tail * rb->item_size, rb->item_size);
+
 	dec_buf(rb);
 
+	pthread_mutex_unlock(&rb->lock);
+
 	return 0;
+
+err_fail:
+	pthread_mutex_unlock(&rb->lock);
+	return -1;
 }
 
 //Check empty or full
@@ -282,9 +354,17 @@ unsigned char rbuf_empty(rbuf_handle_t rbuf)
 	if (rbuf == NULL)
 		return -1;
 
+	unsigned char ret;
+
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
-	return (!rb->full) && (rb->head == rb->tail);
+	pthread_mutex_lock(&rb->lock);
+
+	ret = (!rb->full) && (rb->head == rb->tail);
+
+	pthread_mutex_unlock(&rb->lock);
+
+	return ret;
 }
 
 unsigned char rbug_full(rbuf_handle_t rbuf)
@@ -292,9 +372,17 @@ unsigned char rbug_full(rbuf_handle_t rbuf)
 	if (rbuf == NULL)
 		return -1;
 
+    unsigned char ret;
+
 	struct ring_buf *rb = CAST_RBUF(rbuf);
 
-	return rb->full;
+	pthread_mutex_lock(&rb->lock);
+
+	ret = rb->full;
+	
+    pthread_mutex_unlock(&rb->lock);
+
+    return ret;
 }
 
 //Num of elements
@@ -303,17 +391,22 @@ size_t rbuf_size(rbuf_handle_t rbuf)
 	if (rbuf == NULL)
 		return -1;
 
+    size_t ret;
 	struct ring_buf *rb = CAST_RBUF(rbuf);
+	
+    pthread_mutex_lock(&rb->lock);
 
-	ssize_t ret = rb->size;
+	ret = rb->size;
 
 	if (!rb->full) {
 		ret = rb->head - rb->tail;
 		if (rb->tail > rb->head)
 			ret += rb->size;
 	}
+    
+    pthread_mutex_unlock(&rb->lock);
 
-	return (size_t)ret;
+	return ret;
 }
 
 //Get max capacity
@@ -322,7 +415,14 @@ size_t rbuf_capacity(rbuf_handle_t rbuf)
 	if (rbuf == NULL)
 		return -1;
 
+    size_t ret;
 	struct ring_buf *rb = CAST_RBUF(rbuf);
+    
+    pthread_mutex_lock(&rb->lock);
 
-	return rb->size;
+	ret = rb->size;
+    
+    pthread_mutex_unlock(&rb->lock);
+
+    return ret;
 }

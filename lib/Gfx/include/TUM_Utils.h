@@ -55,6 +55,7 @@ typedef void *rbuf_handle_t;
 rbuf_handle_t rbuf_init(size_t item_size, size_t item_count);
 rbuf_handle_t rbuf_init_static(size_t item_size, size_t item_count, void *buffer);
 
+void rbuf_unlock(rbuf_handle_t rbuf);
 //Destroy
 void rbuf_free(rbuf_handle_t rbuf);
 
