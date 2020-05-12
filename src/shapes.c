@@ -14,6 +14,8 @@
 my_triangle_t* create_tri(signed short x_pos, signed short y_pos, unsigned int color)
 {
     my_triangle_t* tri=calloc(1,sizeof(my_triangle_t));
+    
+    try.points = calloc(3, sizeof(coord_t));
 
     if(!tri)
     {
