@@ -49,28 +49,45 @@ void xGetButtonInput(void)
 
 void vDemoTask(void *pvParameters)
 {
-    // String
+    //String
     static char my_string[100];
     static int my_strings_width = 0;
 
-    // structure for my circle variables
-    static my_circle_t circ;
-    circ.x_pos=SCREEN_WIDTH / 4;
-    circ.y_pos=SCREEN_HEIGHT / 4;
-    circ.color=Red;
-    circ.radius=20;
+    //Creating Circle.
+    static signed short circle_x=SCREEN_WIDTH / 4;
+    static signed short circle_y=SCREEN_HEIGHT / 4;
+    static signed short radius=20;
+    my_circle_t* circ=create_circ(circle_x,circle_y,radius,Red);
+
 
     //Creating Triangle.
-    signed short x_pos=SCREEN_WIDTH/2;
-    signed short y_pos=SCREEN_HEIGHT/2;
-    my_triangle_t* tri=create_tri(x_pos,y_pos,Green);
+    
+    //static signed short tri_x=SCREEN_WIDTH/2;
+    //static signed short tri_y=SCREEN_HEIGHT/2;
+    //my_triangle_t* tri=create_tri(tri_x,tri_y,Green);
+    static my_triangle_t tri;
 
-    //structure for my square
-    static my_square_t box;
-    box.x_pos=380;
-    box.y_pos=100;
-    box.width=100;
-    box.height=100;
+    coord_t p_1;
+    p_1.x=320;
+    p_1.y=200;
+    coord_t p_2;
+    p_2.x=250;
+    p_2.y=200;
+    coord_t p_3;
+    p_3.x=p_2.x+(p_1.x-p_2.x)/2;
+    p_3.y=100;
+    
+    coord_t points[3] ={p_1,p_2,p_3};
+
+    tri.points = points;
+    tri.color = Green;
+
+    //Creating Square.
+    static signed short side=60;
+    static signed short box_x=SCREEN_WIDTH*3/ 4;
+    static signed short box_y=SCREEN_HEIGHT*3/4;
+    my_square_t* box=create_box(box_x,box_y,side,TUMBlue);
+
 
 
     tumDrawBindThread();
@@ -99,11 +116,11 @@ void vDemoTask(void *pvParameters)
                         SCREEN_HEIGHT*3 / 4 - DEFAULT_FONT_SIZE / 2,
                         Navy);
         
-        if (!tumDrawCircle(circ.x_pos,circ.y_pos,circ.radius,circ.color)){} //Draw Circle.
+        if (!tumDrawCircle(circ->x_pos,circ->y_pos,circ->radius,circ->color)){} //Draw Circle.
 
-        if (!tumDrawTriangle(tri->points,tri->color)){} //Draw Triangle.
+        if (!tumDrawTriangle(tri.points,tri.color)){} //Draw Triangle.
         
-        if(!tumDrawFilledBox(box.x_pos,box.y_pos,box.width,box.height,TUMBlue)){} //Draw Box.
+        if(!tumDrawFilledBox(box->x_pos,box->y_pos,box->width,box->height,box->color)){} //Draw Box.
 
         tumDrawUpdateScreen(); // Refresh the screen to draw string
 
