@@ -20,11 +20,11 @@
 
 #include "AsyncIO.h"
 
+#include "shapes.h"
+
 #define mainGENERIC_PRIORITY (tskIDLE_PRIORITY)
 #define mainGENERIC_STACK_SIZE ((unsigned short)2560)
 
-//#define h_screen_w SCREEN_WIDTH/2
-//#define h_screen_h SCREEN_HEIGHT/2
 
 static TaskHandle_t DemoTask = NULL;
 
@@ -35,25 +35,6 @@ typedef struct buttons_buffer {
 
 static buttons_buffer_t buttons = { 0 };
 
-typedef struct my_circle_t {
-    signed short x_pos;
-    signed short y_pos;
-    signed short radius;
-    unsigned int color;
-} my_circle_t;
-
-typedef struct my_square_t{
-    signed short x_pos;
-    signed short y_pos;
-    signed short width;
-    signed short height;
-    unsigned int color;
-} my_square_t;
-
-typedef struct my_triangle_t{
-    coord_t* points;
-    unsigned int color;
-} my_triangle_t;
 
 void xGetButtonInput(void)
 {
@@ -79,23 +60,10 @@ void vDemoTask(void *pvParameters)
     circ.color=Red;
     circ.radius=20;
 
-    //structure for my triangle variables
-    static my_triangle_t tri;
-
-    coord_t p_1;
-    p_1.x=320;
-    p_1.y=200;
-    coord_t p_2;
-    p_2.x=250;
-    p_2.y=200;
-    coord_t p_3;
-    p_3.x=p_2.x+(p_1.x-p_2.x)/2;
-    p_3.y=100;
-    
-    coord_t points[3] ={p_1,p_2,p_3};
-
-    tri.points = points;
-    tri.color = Green;
+    //Creating Triangle.
+    signed short x_pos=SCREEN_WIDTH/2;
+    signed short y_pos=SCREEN_HEIGHT/2;
+    my_triangle_t* tri=create_tri(x_pos,y_pos,Green);
 
     //structure for my square
     static my_square_t box;
@@ -133,7 +101,7 @@ void vDemoTask(void *pvParameters)
         
         if (!tumDrawCircle(circ.x_pos,circ.y_pos,circ.radius,circ.color)){} //Draw Circle.
 
-        if (!tumDrawTriangle(tri.points,tri.color)){} //Draw Triangle.
+        if (!tumDrawTriangle(tri->points,tri->color)){} //Draw Triangle.
         
         if(!tumDrawFilledBox(box.x_pos,box.y_pos,box.width,box.height,TUMBlue)){} //Draw Box.
 
