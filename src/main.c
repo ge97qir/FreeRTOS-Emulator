@@ -66,6 +66,16 @@ void xGetButtonInput(void)
     }
 }
 
+signed int moveWithMouseInX(){
+    signed int x = ((tumEventGetMouseX() - SCREEN_WIDTH / 2) / 5);
+    return x;
+}
+
+signed int moveWithMouseInY(){
+    signed int y = ((tumEventGetMouseY() - SCREEN_HEIGHT / 2) / 5);
+    return y;
+}
+
 // Creates points that represent a triangle
 void createTrianglePoints(coord_t *points) {
     points->x = SCREEN_WIDTH / 2 - SHAPE_SIZE / 2;
@@ -78,6 +88,16 @@ void createTrianglePoints(coord_t *points) {
     points->y = SCREEN_HEIGHT / 2 + SHAPE_SIZE / 2;  
 }
 
+void moveTriWithMouse(coord_t *points) {
+    points->x = SCREEN_WIDTH / 2 - SHAPE_SIZE / 2 + moveWithMouseInX();
+    points->y = SCREEN_HEIGHT / 2 + SHAPE_SIZE / 2 + moveWithMouseInY();
+    points++;          
+    points->x = SCREEN_WIDTH / 2 + moveWithMouseInX();
+    points->y = SCREEN_HEIGHT / 2 - SHAPE_SIZE / 2 + moveWithMouseInY();
+    points++;
+    points->x = SCREEN_WIDTH / 2 + SHAPE_SIZE / 2 + moveWithMouseInX();
+    points->y = SCREEN_HEIGHT / 2 + SHAPE_SIZE / 2 + moveWithMouseInY();  
+}
 // Creates a circle and asigns it color
 void createCircle(circle_data_t *circleStruct){
     circleStruct->x = SCREEN_WIDTH / 2;
@@ -123,27 +143,43 @@ void moveStringHorizontal(coord_t *movingStringPos, int stringWidth){
 void vDrawButtonText(void)
 {
     static char str[50] = { 0 };
+    // counters for pressed buttons
     static int pressedA = 0;
     static int pressedB = 0;
     static int pressedC = 0;
     static int pressedD = 0;
+    
+    // displays mouse potition in x and y coordinates
+    sprintf(str, "Axis 1: %5d | Axis 2: %5d", 
+            tumEventGetMouseX(), tumEventGetMouseY());
+    tumDrawText(str, 
+                10 + moveWithMouseInX(), 
+                DEFAULT_FONT_SIZE * 3 + moveWithMouseInY(),
+                Navy);
 
     if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
-
+        
+        // counts the number of times a button has been pressed
 	    pressedA += buttons.buttons[KEYCODE(A)];
         pressedB += buttons.buttons[KEYCODE(B)];
         pressedC += buttons.buttons[KEYCODE(C)];
         pressedD += buttons.buttons[KEYCODE(D)];
+
         sprintf(str, "A: %3d | B: %3d | C: %3d | D: %3d",
                 pressedA, pressedB, pressedC, pressedD);
+
         xSemaphoreGive(buttons.lock);
+        // resets the button press count on right mouse click
         if(tumEventGetMouseRight()){
             pressedA = 0; 	    
             pressedB = 0;
             pressedC = 0;
             pressedD = 0;
 	}
-        tumDrawText(str, 10, DEFAULT_FONT_SIZE * 3, Navy);
+        tumDrawText(str, 
+                    10 + moveWithMouseInX(), 
+                    DEFAULT_FONT_SIZE * 4 + moveWithMouseInY(), 
+                    Navy);
     }
 }
 
@@ -151,18 +187,21 @@ void vDebounceButtons(buttons_buffer_t *buttonInput){
  
     static unsigned int lastButtonState[4] = { 0 };
     static unsigned int reading[4] = { 0 };
-
+    
     if(xSemaphoreTake(buttonInput->lock, 0) == pdTRUE){
+        // reads which buttons are pressed
         reading[0] = buttonInput->buttons[KEYCODE(A)];
         reading[1] = buttonInput->buttons[KEYCODE(B)];
         reading[2] = buttonInput->buttons[KEYCODE(C)];
         reading[3] = buttonInput->buttons[KEYCODE(D)];
     }
     for(int i = 0; i <=3 ; i++){
+        // compares if the button state has changed and updates it if it has
         if(reading[i] != lastButtonState[i]){
             lastButtonState[i] = reading[i];
                 
         }else{
+            // if button was not pressed or released set it to unpressed state 
             switch(i){
                 case 0:
                     buttonInput->buttons[KEYCODE(A)] = 0;
@@ -194,19 +233,18 @@ void vExercise2(void *pvParameters)
     // create moving text
     static char movingString[100];
     static int movingStringWidth = 0;
+    createMovingStr(movingStringPosition);
 
     // Format our string into our char array
     sprintf(our_time_string,"Press Q to quit.");
     sprintf(movingString, 
-        "Click the right mouse button to resset the pressed button count."); 
-
-    createMovingStr(movingStringPosition);
-
+            "Click right mouse button to resset the pressed button count."); 
+    
     // creating structs for three objects
     createTrianglePoints(trianglePoints); 
     createCircle(&circle);
     createRectangle(&rectangle);    
- 
+    
     // Needed such that Gfx library knows which thread controlls drawing
     // Only one thread can call tumDrawUpdateScreen while and thread can call
     // the drawing functions to draw objects. This is a limitation of the SDL
@@ -242,35 +280,43 @@ void vExercise2(void *pvParameters)
         if (!tumGetTextSize((char *)our_time_string,
                             &our_time_strings_width, NULL)){
             tumDrawText(our_time_string,
-                        SCREEN_WIDTH / 2 -
-                        our_time_strings_width / 2,
-                        SCREEN_HEIGHT - 2 * DEFAULT_FONT_SIZE,
+                        SCREEN_WIDTH / 2 - our_time_strings_width / 2
+                        + moveWithMouseInX(),
+                        SCREEN_HEIGHT - 5 * DEFAULT_FONT_SIZE
+                        + moveWithMouseInY(),
                         Navy);
 	    }
         // Draws the moving text
-        if(!tumDrawText(movingString, movingStringPosition->x,
-                        movingStringPosition->y, Navy)){ 
+        if(!tumDrawText(movingString, 
+                        movingStringPosition->x + moveWithMouseInX(),
+                        movingStringPosition->y + moveWithMouseInY(), 
+                        Navy)){ 
             tumGetTextSize((char *)movingString, &movingStringWidth, NULL);
  	        moveStringHorizontal(movingStringPosition, movingStringWidth);
 	    }
 	    // Draws a moving circle
- 	    tumDrawCircle(circle.x - 3 * SHAPE_SIZE * 
-	                  cos(2 * 3.14 * the_time.tv_nsec / 1000000000), 
-                      circle.y + 3 * SHAPE_SIZE * 
-		              sin(2 * 3.14 * the_time.tv_nsec / 1000000000),
+ 	    tumDrawCircle(circle.x - 2 * SHAPE_SIZE * 
+	                  cos(2 * 3.14 * the_time.tv_nsec / 1000000000)
+                      + moveWithMouseInX(), 
+                      circle.y + 2 * SHAPE_SIZE * 
+		              sin(2 * 3.14 * the_time.tv_nsec / 1000000000)
+                      + moveWithMouseInY(),
                       circle.radius, circle.colour);
         // Draws a moving rectangle
-	    tumDrawFilledBox(rectangle.x + 3 * SHAPE_SIZE *
-		                 cos(2 * 3.14 * the_time.tv_nsec / 1000000000),
-                         rectangle.y - 3 * SHAPE_SIZE * 
-		                 sin(2 * 3.14 * the_time.tv_nsec / 1000000000), 
+	    tumDrawFilledBox(rectangle.x + 2 * SHAPE_SIZE *
+		                 cos(2 * 3.14 * the_time.tv_nsec / 1000000000)
+                         + moveWithMouseInX(),
+                         rectangle.y - 2 * SHAPE_SIZE * 
+		                 sin(2 * 3.14 * the_time.tv_nsec / 1000000000)
+                         + moveWithMouseInY(), 
                          rectangle.w, rectangle.h, rectangle.colour);
-        // Draws a triangle                
+        // Draws a triangle               
+        moveTriWithMouse(trianglePoints); 
         tumDrawTriangle(trianglePoints, Red); 
 
     	vDrawButtonText();
 
-        tumDrawUpdateScreen(); // Refresh the screen to draw string
+        tumDrawUpdateScreen(); // Refresh the screen to draw everything 
 
 	    vTaskDelay(delay);
    }
