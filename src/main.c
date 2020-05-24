@@ -22,6 +22,10 @@
 
 #define mainGENERIC_PRIORITY (tskIDLE_PRIORITY)
 #define mainGENERIC_STACK_SIZE ((unsigned short)2560)
+#define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+#define SHAPE_SIZE 38
+#define RIGHT 1
+#define LEFT 0
 
 static TaskHandle_t DemoTask = NULL;
 
@@ -32,6 +36,27 @@ typedef struct buttons_buffer {
 
 static buttons_buffer_t buttons = { 0 };
 
+coord_t trianglePoints[3] = { 0 };
+coord_t movingStringPosition[1] = { 0 };
+
+typedef struct circle_data {
+    signed short x;
+    signed short y;
+    signed short radius;
+    unsigned int colour;
+} circle_data_t;
+
+typedef struct rect_data {
+    signed short x;
+    signed short y;
+    signed short w;
+    signed short h;
+    unsigned int colour;
+} rect_data_t;
+
+circle_data_t circle = { 0 };
+rect_data_t rectangle = { 0 };
+
 void xGetButtonInput(void)
 {
     if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
@@ -40,15 +65,84 @@ void xGetButtonInput(void)
     }
 }
 
-#define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+// Creates points that represent a triangle
+void createTrianglePoints(coord_t *points) {
+    points->x = SCREEN_WIDTH / 2 - SHAPE_SIZE / 2;
+    points->y = SCREEN_HEIGHT / 2 + SHAPE_SIZE / 2;
+    points++;          
+    points->x = SCREEN_WIDTH / 2;
+    points->y = SCREEN_HEIGHT / 2 - SHAPE_SIZE / 2;
+    points++;
+    points->x = SCREEN_WIDTH / 2 + SHAPE_SIZE / 2;
+    points->y = SCREEN_HEIGHT / 2 + SHAPE_SIZE / 2;  
+}
+
+// Creates a circle and asigns it color
+void createCircle(circle_data_t *circleStruct){
+    circleStruct->x = SCREEN_WIDTH / 2;
+    circleStruct->y = SCREEN_HEIGHT / 2;
+    circleStruct->radius = SHAPE_SIZE / 2;
+    circleStruct->colour = Green;
+}
+
+// Creates a rectangle and asigns it color
+void createRectangle(rect_data_t *rectStruct){
+    rectStruct->x = SCREEN_WIDTH / 2 - SHAPE_SIZE / 2;
+    rectStruct->y = SCREEN_HEIGHT / 2 - SHAPE_SIZE / 2;                 
+    rectStruct->w = SHAPE_SIZE;                    
+    rectStruct->h = SHAPE_SIZE;
+    rectStruct->colour = Purple;
+}
+
+void createMovingStr(coord_t *movingStringPos){
+    movingStringPos->x = SCREEN_WIDTH / 2;
+    movingStringPos->y = 2 * DEFAULT_FONT_SIZE;
+}
+
+void moveStringHorizontal(coord_t *movingStringPos, int stringWidth){
+    static int direction = RIGHT;
+
+    // checks the direction of movement and checks for collision of 
+    // the strign with the screen edge
+    if(direction == RIGHT && 
+       (movingStringPos->x + stringWidth < SCREEN_WIDTH)){
+        movingStringPos->x += 1;
+    }else{
+        direction = LEFT;
+    }
+
+    if(direction == LEFT && 
+       (movingStringPos->x > 0)){
+        movingStringPos->x -= 1;
+    }else{
+        direction = RIGHT;
+    } 
+}
 
 void vDemoTask(void *pvParameters)
 {
+    TickType_t delay = 10;
+
     // structure to store time retrieved from Linux kernel
     static struct timespec the_time;
     static char our_time_string[100];
     static int our_time_strings_width = 0;
+    
+    // create moving text
+    static char movingString[50];
+    static int movingStringWidth = 0;
 
+    // Format our string into our char array
+    sprintf(our_time_string,"Press Q to quit.");
+    sprintf(movingString, "Weeeee!!!"); 
+
+    createMovingStr(movingStringPosition);
+
+    // creating structs for three objects
+    createTrianglePoints(trianglePoints); 
+    createCircle(&circle);
+    createRectangle(&rectangle);    
+ 
     // Needed such that Gfx library knows which thread controlls drawing
     // Only one thread can call tumDrawUpdateScreen while and thread can call
     // the drawing functions to draw objects. This is a limitation of the SDL
@@ -76,26 +170,41 @@ void vDemoTask(void *pvParameters)
         clock_gettime(CLOCK_REALTIME,
                       &the_time); // Get kernel real time
 
-        // Format our string into our char array
-        sprintf(our_time_string,
-                "There has been %ld seconds since the Epoch. Press Q to quit",
-                (long int)the_time.tv_sec);
-
         // Get the width of the string on the screen so we can center it
         // Returns 0 if width was successfully obtained
         if (!tumGetTextSize((char *)our_time_string,
-                            &our_time_strings_width, NULL))
+                            &our_time_strings_width, NULL)){
             tumDrawText(our_time_string,
                         SCREEN_WIDTH / 2 -
                         our_time_strings_width / 2,
-                        SCREEN_HEIGHT / 2 - DEFAULT_FONT_SIZE / 2,
-                        TUMBlue);
+                        SCREEN_HEIGHT - 2 * DEFAULT_FONT_SIZE,
+                        Navy);
+	}
+        // Draws the moving text
+        if(!tumDrawText(movingString, movingStringPosition->x,
+                        movingStringPosition->y, Navy)){ 
+
+            tumGetTextSize((char *)movingString, &movingStringWidth, NULL);
+ 	    moveStringHorizontal(movingStringPosition, movingStringWidth);
+	}
+
+ 	tumDrawCircle(circle.x - 3 * SHAPE_SIZE * 
+	             cos(2 * 3.14 * the_time.tv_nsec / 1000000000), 
+                     circle.y + 3 * SHAPE_SIZE * 
+		     sin(2 * 3.14 * the_time.tv_nsec / 1000000000),
+                     circle.radius, circle.colour);
+        tumDrawFilledBox(rectangle.x + 3 * SHAPE_SIZE *
+		        cos(2 * 3.14 * the_time.tv_nsec / 1000000000),
+                        rectangle.y - 3 * SHAPE_SIZE * 
+		 	sin(2 * 3.14 * the_time.tv_nsec / 1000000000), 
+                        rectangle.w, rectangle.h, rectangle.colour);
+                        
+        tumDrawTriangle(trianglePoints, Red); 
 
         tumDrawUpdateScreen(); // Refresh the screen to draw string
 
-        // Basic sleep of 1000 milliseconds
-        vTaskDelay((TickType_t)1000);
-    }
+	vTaskDelay(delay);
+   }
 }
 
 int main(int argc, char *argv[])
