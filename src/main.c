@@ -26,8 +26,9 @@
 #define SHAPE_SIZE 38
 #define RIGHT 1
 #define LEFT 0
+#define PRESSED 1
 
-static TaskHandle_t DemoTask = NULL;
+static TaskHandle_t exercise2 = NULL;
 
 typedef struct buttons_buffer {
     unsigned char buttons[SDL_NUM_SCANCODES];
@@ -96,7 +97,7 @@ void createRectangle(rect_data_t *rectStruct){
 
 void createMovingStr(coord_t *movingStringPos){
     movingStringPos->x = SCREEN_WIDTH / 2;
-    movingStringPos->y = 2 * DEFAULT_FONT_SIZE;
+    movingStringPos->y = DEFAULT_FONT_SIZE;
 }
 
 void moveStringHorizontal(coord_t *movingStringPos, int stringWidth){
@@ -119,7 +120,69 @@ void moveStringHorizontal(coord_t *movingStringPos, int stringWidth){
     } 
 }
 
-void vDemoTask(void *pvParameters)
+void vDrawButtonText(void)
+{
+    static char str[50] = { 0 };
+    static int pressedA = 0;
+    static int pressedB = 0;
+    static int pressedC = 0;
+    static int pressedD = 0;
+
+    if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+
+	    pressedA += buttons.buttons[KEYCODE(A)];
+        pressedB += buttons.buttons[KEYCODE(B)];
+        pressedC += buttons.buttons[KEYCODE(C)];
+        pressedD += buttons.buttons[KEYCODE(D)];
+        sprintf(str, "A: %3d | B: %3d | C: %3d | D: %3d",
+                pressedA, pressedB, pressedC, pressedD);
+        xSemaphoreGive(buttons.lock);
+        if(tumEventGetMouseRight()){
+            pressedA = 0; 	    
+            pressedB = 0;
+            pressedC = 0;
+            pressedD = 0;
+	}
+        tumDrawText(str, 10, DEFAULT_FONT_SIZE * 3, Navy);
+    }
+}
+
+void vDebounceButtons(buttons_buffer_t *buttonInput){
+ 
+    static unsigned int lastButtonState[4] = { 0 };
+    static unsigned int reading[4] = { 0 };
+
+    if(xSemaphoreTake(buttonInput->lock, 0) == pdTRUE){
+        reading[0] = buttonInput->buttons[KEYCODE(A)];
+        reading[1] = buttonInput->buttons[KEYCODE(B)];
+        reading[2] = buttonInput->buttons[KEYCODE(C)];
+        reading[3] = buttonInput->buttons[KEYCODE(D)];
+    }
+    for(int i = 0; i <=3 ; i++){
+        if(reading[i] != lastButtonState[i]){
+            lastButtonState[i] = reading[i];
+                
+        }else{
+            switch(i){
+                case 0:
+                    buttonInput->buttons[KEYCODE(A)] = 0;
+                    break;
+                case 1:
+                    buttonInput->buttons[KEYCODE(B)] = 0;
+                    break;
+                case 2:
+                    buttonInput->buttons[KEYCODE(C)] = 0;
+                    break;
+                case 3:
+                    buttonInput->buttons[KEYCODE(D)] = 0;
+                    break;
+            }       
+        }
+        xSemaphoreGive(buttonInput->lock);
+    }
+}
+
+void vExercise2(void *pvParameters)
 {
     TickType_t delay = 10;
 
@@ -129,12 +192,13 @@ void vDemoTask(void *pvParameters)
     static int our_time_strings_width = 0;
     
     // create moving text
-    static char movingString[50];
+    static char movingString[100];
     static int movingStringWidth = 0;
 
     // Format our string into our char array
     sprintf(our_time_string,"Press Q to quit.");
-    sprintf(movingString, "Weeeee!!!"); 
+    sprintf(movingString, 
+        "Click the right mouse button to resset the pressed button count."); 
 
     createMovingStr(movingStringPosition);
 
@@ -150,8 +214,12 @@ void vDemoTask(void *pvParameters)
     tumDrawBindThread();
 
     while (1) {
-        tumEventFetchEvents(); // Query events backend for new events, ie. button presses
+        // Query events backend for new events, ie. button presses
+        tumEventFetchEvents();    
+   
         xGetButtonInput(); // Update global input
+        
+        vDebounceButtons(&buttons); // Debounces buttons
 
         // `buttons` is a global shared variable and as such needs to be
         // guarded with a mutex, mutex must be obtained before accessing the
@@ -166,9 +234,8 @@ void vDemoTask(void *pvParameters)
         }
 
         tumDrawClear(White); // Clear screen
-
-        clock_gettime(CLOCK_REALTIME,
-                      &the_time); // Get kernel real time
+ 
+        clock_gettime(CLOCK_REALTIME, &the_time); // Get kernel real time
 
         // Get the width of the string on the screen so we can center it
         // Returns 0 if width was successfully obtained
@@ -179,31 +246,33 @@ void vDemoTask(void *pvParameters)
                         our_time_strings_width / 2,
                         SCREEN_HEIGHT - 2 * DEFAULT_FONT_SIZE,
                         Navy);
-	}
+	    }
         // Draws the moving text
         if(!tumDrawText(movingString, movingStringPosition->x,
                         movingStringPosition->y, Navy)){ 
-
             tumGetTextSize((char *)movingString, &movingStringWidth, NULL);
- 	    moveStringHorizontal(movingStringPosition, movingStringWidth);
-	}
-
- 	tumDrawCircle(circle.x - 3 * SHAPE_SIZE * 
-	             cos(2 * 3.14 * the_time.tv_nsec / 1000000000), 
-                     circle.y + 3 * SHAPE_SIZE * 
-		     sin(2 * 3.14 * the_time.tv_nsec / 1000000000),
-                     circle.radius, circle.colour);
-        tumDrawFilledBox(rectangle.x + 3 * SHAPE_SIZE *
-		        cos(2 * 3.14 * the_time.tv_nsec / 1000000000),
-                        rectangle.y - 3 * SHAPE_SIZE * 
-		 	sin(2 * 3.14 * the_time.tv_nsec / 1000000000), 
-                        rectangle.w, rectangle.h, rectangle.colour);
-                        
+ 	        moveStringHorizontal(movingStringPosition, movingStringWidth);
+	    }
+	    // Draws a moving circle
+ 	    tumDrawCircle(circle.x - 3 * SHAPE_SIZE * 
+	                  cos(2 * 3.14 * the_time.tv_nsec / 1000000000), 
+                      circle.y + 3 * SHAPE_SIZE * 
+		              sin(2 * 3.14 * the_time.tv_nsec / 1000000000),
+                      circle.radius, circle.colour);
+        // Draws a moving rectangle
+	    tumDrawFilledBox(rectangle.x + 3 * SHAPE_SIZE *
+		                 cos(2 * 3.14 * the_time.tv_nsec / 1000000000),
+                         rectangle.y - 3 * SHAPE_SIZE * 
+		                 sin(2 * 3.14 * the_time.tv_nsec / 1000000000), 
+                         rectangle.w, rectangle.h, rectangle.colour);
+        // Draws a triangle                
         tumDrawTriangle(trianglePoints, Red); 
+
+    	vDrawButtonText();
 
         tumDrawUpdateScreen(); // Refresh the screen to draw string
 
-	vTaskDelay(delay);
+	    vTaskDelay(delay);
    }
 }
 
@@ -234,16 +303,16 @@ int main(int argc, char *argv[])
         goto err_buttons_lock;
     }
 
-    if (xTaskCreate(vDemoTask, "DemoTask", mainGENERIC_STACK_SIZE * 2, NULL,
-                    mainGENERIC_PRIORITY, &DemoTask) != pdPASS) {
-        goto err_demotask;
+    if (xTaskCreate(vExercise2, "Exercise 2", mainGENERIC_STACK_SIZE * 2,
+		    NULL, mainGENERIC_PRIORITY, &exercise2) != pdPASS) {
+        goto err_exercise2;
     }
 
     vTaskStartScheduler();
 
     return EXIT_SUCCESS;
 
-err_demotask:
+err_exercise2:
     vSemaphoreDelete(buttons.lock);
 err_buttons_lock:
     tumSoundExit();
