@@ -140,7 +140,7 @@ void moveStringHorizontal(coord_t *movingStringPos, int stringWidth){
     } 
 }
 
-void vDrawButtonText(void)
+void vDrawButtonText(unsigned int *buttonInput)
 {
     static char str[50] = { 0 };
     // counters for pressed buttons
@@ -160,10 +160,10 @@ void vDrawButtonText(void)
     if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
         
         // counts the number of times a button has been pressed
-	    pressedA += buttons.buttons[KEYCODE(A)];
-        pressedB += buttons.buttons[KEYCODE(B)];
-        pressedC += buttons.buttons[KEYCODE(C)];
-        pressedD += buttons.buttons[KEYCODE(D)];
+	    pressedA += (*buttonInput++);
+        pressedB += (*buttonInput++);
+        pressedC += (*buttonInput++);
+        pressedD += (*buttonInput++);
 
         sprintf(str, "A: %3d | B: %3d | C: %3d | D: %3d",
                 pressedA, pressedB, pressedC, pressedD);
@@ -183,52 +183,42 @@ void vDrawButtonText(void)
     }
 }
 
-void vDebounceButtons(buttons_buffer_t *buttonInput){
+unsigned int* vDebounceButtons(){
  
     static unsigned int lastButtonState[4] = { 0 };
     static unsigned int reading[4] = { 0 };
     
-    if(xSemaphoreTake(buttonInput->lock, 0) == pdTRUE){
+    
+    if(xSemaphoreTake(buttons.lock, 0) == pdTRUE){
         // reads which buttons are pressed
-        reading[0] = buttonInput->buttons[KEYCODE(A)];
-        reading[1] = buttonInput->buttons[KEYCODE(B)];
-        reading[2] = buttonInput->buttons[KEYCODE(C)];
-        reading[3] = buttonInput->buttons[KEYCODE(D)];
-    }
-    for(int i = 0; i <=3 ; i++){
-        // compares if the button state has changed and updates it if it has
-        if(reading[i] != lastButtonState[i]){
-            lastButtonState[i] = reading[i];
-                
-        }else{
-            // if button was not pressed or released set it to unpressed state 
-            switch(i){
-                case 0:
-                    buttonInput->buttons[KEYCODE(A)] = 0;
-                    break;
-                case 1:
-                    buttonInput->buttons[KEYCODE(B)] = 0;
-                    break;
-                case 2:
-                    buttonInput->buttons[KEYCODE(C)] = 0;
-                    break;
-                case 3:
-                    buttonInput->buttons[KEYCODE(D)] = 0;
-                    break;
-            }       
+        reading[0] = buttons.buttons[KEYCODE(A)];
+        reading[1] = buttons.buttons[KEYCODE(B)];
+        reading[2] = buttons.buttons[KEYCODE(C)];
+        reading[3] = buttons.buttons[KEYCODE(D)];
+    
+        for(int i = 0; i <=3 ; i++){
+            // compares if the button state has changed and updates it if it has
+            if(reading[i] != lastButtonState[i]){
+                lastButtonState[i] = reading[i];
+                    
+            }else{
+                // if state has not changed set it to not pressed
+                reading[i] = 0;                    
+            }
         }
-        xSemaphoreGive(buttonInput->lock);
     }
+    xSemaphoreGive(buttons.lock);
+    return reading;
 }
 
 void vExercise2(void *pvParameters)
 {
     TickType_t delay = 10;
+    unsigned int *pressedButtons;
 
     // structure to store time retrieved from Linux kernel
-    static struct timespec the_time;
-    static char our_time_string[100];
-    static int our_time_strings_width = 0;
+    static char quitInstructions[100];
+    static int quitInstructionssWidth = 0;
     
     // create moving text
     static char movingString[100];
@@ -236,7 +226,7 @@ void vExercise2(void *pvParameters)
     createMovingStr(movingStringPosition);
 
     // Format our string into our char array
-    sprintf(our_time_string,"Press Q to quit.");
+    sprintf(quitInstructions,"Press Q to quit.");
     sprintf(movingString, 
             "Click right mouse button to resset the pressed button count."); 
     
@@ -257,7 +247,7 @@ void vExercise2(void *pvParameters)
    
         xGetButtonInput(); // Update global input
         
-        vDebounceButtons(&buttons); // Debounces buttons
+        pressedButtons = vDebounceButtons(); // Debounces buttons
 
         // `buttons` is a global shared variable and as such needs to be
         // guarded with a mutex, mutex must be obtained before accessing the
@@ -273,14 +263,12 @@ void vExercise2(void *pvParameters)
 
         tumDrawClear(White); // Clear screen
  
-        clock_gettime(CLOCK_REALTIME, &the_time); // Get kernel real time
-
         // Get the width of the string on the screen so we can center it
         // Returns 0 if width was successfully obtained
-        if (!tumGetTextSize((char *)our_time_string,
-                            &our_time_strings_width, NULL)){
-            tumDrawText(our_time_string,
-                        SCREEN_WIDTH / 2 - our_time_strings_width / 2
+        if (!tumGetTextSize((char *)quitInstructions,
+                            &quitInstructionssWidth, NULL)){
+            tumDrawText(quitInstructions,
+                        SCREEN_WIDTH / 2 - quitInstructionssWidth / 2
                         + moveWithMouseInX(),
                         SCREEN_HEIGHT - 5 * DEFAULT_FONT_SIZE
                         + moveWithMouseInY(),
@@ -296,25 +284,25 @@ void vExercise2(void *pvParameters)
 	    }
 	    // Draws a moving circle
  	    tumDrawCircle(circle.x - 2 * SHAPE_SIZE * 
-	                  cos(2 * 3.14 * the_time.tv_nsec / 1000000000)
+	                  cos(2 * 3.14 * xTaskGetTickCount()/2000)
                       + moveWithMouseInX(), 
                       circle.y + 2 * SHAPE_SIZE * 
-		              sin(2 * 3.14 * the_time.tv_nsec / 1000000000)
+		              sin(2 * 3.14 * xTaskGetTickCount()/2000)
                       + moveWithMouseInY(),
                       circle.radius, circle.colour);
         // Draws a moving rectangle
 	    tumDrawFilledBox(rectangle.x + 2 * SHAPE_SIZE *
-		                 cos(2 * 3.14 * the_time.tv_nsec / 1000000000)
+		                 cos(2 * 3.14 * xTaskGetTickCount()/2000)
                          + moveWithMouseInX(),
                          rectangle.y - 2 * SHAPE_SIZE * 
-		                 sin(2 * 3.14 * the_time.tv_nsec / 1000000000)
+		                 sin(2 * 3.14 * xTaskGetTickCount()/2000)
                          + moveWithMouseInY(), 
                          rectangle.w, rectangle.h, rectangle.colour);
         // Draws a triangle               
         moveTriWithMouse(trianglePoints); 
         tumDrawTriangle(trianglePoints, Red); 
 
-    	vDrawButtonText();
+    	vDrawButtonText(pressedButtons);
 
         tumDrawUpdateScreen(); // Refresh the screen to draw everything 
 
