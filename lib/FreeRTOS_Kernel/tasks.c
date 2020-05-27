@@ -434,7 +434,17 @@ extern void vApplicationTickHook(void);
 #endif
 
 #if( configSUPPORT_STATIC_ALLOCATION == 1 )
-extern void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize);
+static StaticTask_t xIdleTaskTCB;
+static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
+
+extern void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, 
+                                          StackType_t **ppxIdleTaskStackBuffer, 
+                                          uint32_t *pulIdleTaskStackSize)
+{
+    *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
+    *ppxIdleTaskStackBuffer = uxIdleTaskStack;
+    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
+}
 #endif
 
 /* File private functions. --------------------------------*/
@@ -1714,13 +1724,15 @@ void vTaskStartScheduler(void)
     /* Add the idle task at the lowest priority. */
 #if( configSUPPORT_STATIC_ALLOCATION == 1 )
     {
-        StaticTask_t *pxIdleTaskTCBBuffer = NULL;
-        StackType_t *pxIdleTaskStackBuffer = NULL;
-        uint32_t ulIdleTaskStackSize;
+        static StaticTask_t *pxIdleTaskTCBBuffer = NULL;
+        static StackType_t *pxIdleTaskStackBuffer = NULL;
+        static uint32_t ulIdleTaskStackSize;
 
         /* The Idle task is created using user provided RAM - obtain the
         address of the RAM then create the idle task. */
-        vApplicationGetIdleTaskMemory(&pxIdleTaskTCBBuffer, &pxIdleTaskStackBuffer, &ulIdleTaskStackSize);
+        vApplicationGetIdleTaskMemory(&pxIdleTaskTCBBuffer, 
+                                      &pxIdleTaskStackBuffer, 
+                                      &ulIdleTaskStackSize);
         xIdleTaskHandle = xTaskCreateStatic(prvIdleTask,
                                             "IDLE",
                                             ulIdleTaskStackSize,
