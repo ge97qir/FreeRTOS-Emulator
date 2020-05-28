@@ -9,14 +9,19 @@ In tickless kernels there is no fixed timer tick. Instead, the kernel schedules 
 ## CHANGING STACK SIZES
 Normally a to high stack size leads to memory issues and a too low number may be too mush for more complex tasks and the sistem would crash.
 
-## BUTTONS TO USE
-I for incrementing a variable X every second
-X for incrementing X
-V for incrementing V
-A, B, C, D (on the first page for counter).
-Right Mouse Click to reset counter on the first page.
-Lastly:
--to switch the task press E
--to quit press Q 
+## INSTRUCTIONS TO USE
+**First screen:**\
+A, B, C, D for button counter)\
+Right Mouse Click to reset the counters\
+
+**Second screen:**\
+I for incrementing a variable "X" every second\
+X for manually incrementing "X" every press\
+V for manually incrementing "V" every press\
+*The counters will restart every 15 seconds*
+
+**Lastly:**\
+To switch between tasks press E\
+To quit press Q\
 
 THAT IS ALL :)
