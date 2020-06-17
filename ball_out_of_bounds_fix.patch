@@ -1,0 +1,44 @@
+diff --git a/src/main.c b/src/main.c
+index 85d39f9..ca864de 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -35,6 +35,9 @@
+ 
+ #define STATE_DEBOUNCE_DELAY 300
+ 
++//this is used as a time difference so be carefull in the implementation
++#define BALL_SPEED 15
++
+ #define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
+ #define CAVE_SIZE_X SCREEN_WIDTH / 2
+ #define CAVE_SIZE_Y SCREEN_HEIGHT / 2
+@@ -571,8 +574,6 @@ void vDemoTask2(void *pvParameters)
+         if (DrawSignal)
+             if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                 pdTRUE) {
+-                xLastWakeTime = xTaskGetTickCount();
+-
+                 xGetButtonInput(); // Update global button data
+ 
+                 xSemaphoreTake(ScreenLock, portMAX_DELAY);
+@@ -615,7 +616,7 @@ void vDemoTask2(void *pvParameters)
+                 // Update the balls position now that possible collisions have
+                 // updated its speeds
+                 updateBallPosition(
+-                    my_ball, xLastWakeTime - prevWakeTime);
++                    my_ball, BALL_SPEED);
+ 
+                 // Draw the ball
+                 checkDraw(tumDrawCircle(my_ball->x, my_ball->y,
+@@ -630,11 +631,6 @@ void vDemoTask2(void *pvParameters)
+ 
+                 // Check for state change
+                 vCheckStateInput();
+-
+-                // Keep track of when task last ran so that you know how many ticks
+-                //(in our case miliseconds) have passed so that the balls position
+-                // can be updated appropriatley
+-                prevWakeTime = xLastWakeTime;
+             }
+     }
+ }
