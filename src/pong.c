@@ -42,11 +42,6 @@
 /** HELPER MACRO TO RESOLVE SDL KEYCODES */
 #define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
 
-/** AsyncIO related */
-#define UDP_BUFFER_SIZE 1024
-#define UDP_RECEIVE_PORT 1234
-#define UDP_TRANSMIT_PORT 1235
-
 const unsigned char start_left = START_LEFT;
 const unsigned char start_right = START_RIGHT;
 
@@ -61,7 +56,13 @@ TaskHandle_t LeftPaddleTask = NULL;
 TaskHandle_t RightPaddleTask = NULL;
 TaskHandle_t PongControlTask = NULL;
 TaskHandle_t PausedStateTask = NULL;
-TaskHandle_t UDPControlTask = NULL;
+// Main menu tasks
+TaskHandle_t SinglePlayerMenu = NULL;
+TaskHandle_t MultiPlayerMenu = NULL;
+TaskHandle_t ScoreMenu = NULL;
+TaskHandle_t CheatsMenu = NULL;
+TaskHandle_t ExitMenu = NULL;
+
 
 SemaphoreHandle_t ScreenLock = NULL;
 SemaphoreHandle_t DrawSignal = NULL;
@@ -69,91 +70,12 @@ SemaphoreHandle_t DrawSignal = NULL;
 static QueueHandle_t LeftScoreQueue = NULL;
 static QueueHandle_t RightScoreQueue = NULL;
 static QueueHandle_t StartDirectionQueue = NULL;
-static QueueHandle_t NextKeyQueue = NULL;
 static QueueHandle_t BallYQueue = NULL;
 static QueueHandle_t PaddleYQueue = NULL;
+static QueueHandle_t debounceQueue = NULL;
+static QueueHandle_t restartGameQueue = NULL;
 
 static SemaphoreHandle_t BallInactive = NULL;
-static SemaphoreHandle_t HandleUDP = NULL;
-
-aIO_handle_t udp_soc_receive = NULL, udp_soc_transmit = NULL;
-
-typedef enum { NONE = 0, INC = 1, DEC = -1 } opponent_cmd_t;
-
-void UDPHandler(size_t read_size, char *buffer, void *args)
-{
-    opponent_cmd_t next_key = NONE;
-    BaseType_t xHigherPriorityTaskWoken1 = pdFALSE;
-    BaseType_t xHigherPriorityTaskWoken2 = pdFALSE;
-    BaseType_t xHigherPriorityTaskWoken3 = pdFALSE;
-
-    if (xSemaphoreTakeFromISR(HandleUDP, &xHigherPriorityTaskWoken1) ==
-        pdTRUE) {
-
-        char send_command = 0;
-        if (strncmp(buffer, "INC", (read_size < 3) ? read_size : 3) ==
-            0) {
-            next_key = INC;
-            send_command = 1;
-        }
-        else if (strncmp(buffer, "DEC",
-                         (read_size < 3) ? read_size : 3) == 0) {
-            next_key = DEC;
-            send_command = 1;
-        }
-        else if (strncmp(buffer, "NONE",
-                         (read_size < 4) ? read_size : 4) == 0) {
-            next_key = NONE;
-            send_command = 1;
-        }
-
-        if (NextKeyQueue && send_command) {
-            xQueueSendFromISR(NextKeyQueue, (void *)&next_key,
-                              &xHigherPriorityTaskWoken2);
-        }
-        xSemaphoreGiveFromISR(HandleUDP, &xHigherPriorityTaskWoken3);
-
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken1 |
-                           xHigherPriorityTaskWoken2 |
-                           xHigherPriorityTaskWoken3);
-    }
-    else {
-        fprintf(stderr, "[ERROR] Overlapping UDPHandler call\n");
-    }
-}
-
-void vUDPControlTask(void *pvParameters)
-{
-    /** static char *cmd_pause = "PAUSE"; */
-    /** static char *cmd_resume = "RESUME"; */
-    static char buf[50];
-    char *addr = NULL; // Loopback
-    in_port_t port = UDP_RECEIVE_PORT;
-    unsigned int ball_y = 0;
-    unsigned int paddle_y = 0;
-
-    udp_soc_receive =
-        aIOOpenUDPSocket(addr, port, UDP_BUFFER_SIZE, UDPHandler, NULL);
-
-    printf("UDP socket opened on port %d\n", port);
-
-    // TODO: implement pause and difficulties
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(15));
-        while (xQueueReceive(BallYQueue, &ball_y, 0) == pdTRUE) {
-        }
-        while (xQueueReceive(PaddleYQueue, &paddle_y, 0) == pdTRUE) {
-        }
-        signed int diff = ball_y - paddle_y;
-        if (diff > 0) {
-            sprintf(buf, "+%d", diff);
-        }
-        else {
-            sprintf(buf, "-%d", -diff);
-        }
-        aIOSocketPut(UDP, NULL, UDP_TRANSMIT_PORT, buf, strlen(buf));
-    }
-}
 
 void xGetButtonInput(void)
 {
@@ -227,23 +149,6 @@ unsigned char xCheckPongLeftInput(unsigned short *left_paddle_y)
     return 0;
 }
 
-unsigned char xCheckPongUDPInput(unsigned short *paddle_y)
-{
-    static opponent_cmd_t current_key = NONE;
-
-    if (NextKeyQueue) {
-        xQueueReceive(NextKeyQueue, &current_key, 0);
-    }
-
-    if (current_key == INC) {
-        vDecrementPaddleY(paddle_y);
-    }
-    else if (current_key == DEC) {
-        vIncrementPaddleY(paddle_y);
-    }
-    return 0;
-}
-
 unsigned char xCheckForInput(void)
 {
     if (xCheckPongLeftInput(NULL) || xCheckPongRightInput(NULL)) {
@@ -255,21 +160,6 @@ unsigned char xCheckForInput(void)
 void playBallSound(void *args)
 {
     tumSoundPlaySample(a3);
-}
-
-#define NET_DOTS 24
-#define NET_DOT_WIDTH 6
-#define NET_DOT_HEIGHT (GAME_FIELD_HEIGHT_INNER / (NET_DOTS * 2.0))
-
-void vDrawNetDots(void)
-{
-    static int i;
-    for (i = 0; i < NET_DOTS; i++) {
-        tumDrawFilledBox(SCREEN_WIDTH / 2 - NET_DOT_WIDTH / 2,
-                         GAME_FIELD_INNER +
-                         round(2.0 * i * NET_DOT_HEIGHT),
-                         NET_DOT_WIDTH, round(NET_DOT_HEIGHT), White);
-    }
 }
 
 void vDrawHelpText(void)
@@ -285,28 +175,6 @@ void vDrawHelpText(void)
     if (!tumGetTextSize((char *)str, &text_width, NULL))
         tumDrawText(str,
                     SCREEN_WIDTH - text_width - DEFAULT_FONT_SIZE * 2.5,
-                    DEFAULT_FONT_SIZE * 2.5, White);
-
-    tumFontSetSize(prev_font_size);
-}
-
-void vDrawOpponentText(char enabled)
-{
-    static char str[100] = { 0 };
-    static int text_width;
-    ssize_t prev_font_size = tumFontGetCurFontSize();
-
-    tumFontSetSize((ssize_t)20);
-
-    if (enabled) {
-        sprintf(str, "Computer Mode [SPACE]");
-    }
-    else {
-        sprintf(str, "2 Player Mode [SPACE]");
-    }
-
-    if (!tumGetTextSize((char *)str, &text_width, NULL))
-        tumDrawText(str, DEFAULT_FONT_SIZE * 2.5,
                     DEFAULT_FONT_SIZE * 2.5, White);
 
     tumFontSetSize(prev_font_size);
@@ -393,15 +261,7 @@ void vRightPaddleTask(void *pvParameters)
 
     while (1) {
         // Get input
-        if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) { // COMPUTER
-            xCheckPongUDPInput(&right_player.paddle_position);
-            unsigned long paddle_y = right_player.paddle_position *
-                                     PADDLE_INCREMENT_SIZE +
-                                     PADDLE_LENGTH / 2 +
-                                     WALL_OFFSET + WALL_THICKNESS;
-            xQueueSend(PaddleYQueue, (void *)&paddle_y, 0);
-        }
-        else {   // PLAYER
+        if (!ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) {   // PLAYER
             xCheckPongRightInput(&right_player.paddle_position);
         }
 
@@ -451,16 +311,7 @@ void vLeftPaddleTask(void *pvParameters)
 
     while (1) {
         // Get input
-        if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) { // COMPUTER
-            xCheckPongUDPInput(&left_player.paddle_position);
-            unsigned long paddle_y = left_player.paddle_position *
-                                     PADDLE_INCREMENT_SIZE +
-                                     PADDLE_LENGTH / 2 +
-                                     WALL_OFFSET + WALL_THICKNESS;
-            xQueueSend(PaddleYQueue, (void *)&paddle_y, 0);
-
-        }
-        else {   // PLAYER
+        if (!ulTaskNotifyTake(pdTRUE, portMAX_DELAY)) {   // PLAYER
             xCheckPongLeftInput(&left_player.paddle_position);
         }
 
@@ -477,10 +328,10 @@ void vLeftPaddleTask(void *pvParameters)
     }
 }
 
-void vWakePaddles(char opponent_mode)
+void vWakePaddles(void)
 {
-    if (xTaskNotify(LeftPaddleTask, opponent_mode,
-                    eSetValueWithOverwrite) != pdPASS) {
+    if (xTaskNotify(LeftPaddleTask, 0x0, eSetValueWithOverwrite) != 
+        pdPASS) {
         fprintf(stderr,
                 "[ERROR] Task Notification to LeftPaddleTask failed\n");
     }
@@ -510,22 +361,12 @@ void vPongControlTask(void *pvParameters)
     unsigned int left_score = 0;
     unsigned int right_score = 0;
 
-    char opponent_mode = 0; // 0: player 1: computer
-
     BallInactive = xSemaphoreCreateBinary();
     if (!BallInactive) {
         exit(EXIT_FAILURE);
     }
-    HandleUDP = xSemaphoreCreateMutex();
-    if (!HandleUDP) {
-        exit(EXIT_FAILURE);
-    }
     StartDirectionQueue = xQueueCreate(1, sizeof(unsigned char));
     if (!StartDirectionQueue) {
-        exit(EXIT_FAILURE);
-    }
-    NextKeyQueue = xQueueCreate(1, sizeof(opponent_cmd_t));
-    if (!NextKeyQueue) {
         exit(EXIT_FAILURE);
     }
     BallYQueue = xQueueCreate(5, sizeof(unsigned long));
@@ -552,16 +393,28 @@ void vPongControlTask(void *pvParameters)
         if (DrawSignal) {
             if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
                 pdTRUE) {
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    xQueueReceive(restartGameQueue, &buttons.buttons[KEYCODE(R)], 0);
+                    xSemaphoreGive(buttons.lock);
+                }
+                
                 xGetButtonInput(); // Update global button data
 
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
                     if (buttons.buttons[KEYCODE(P)]) {
                         xSemaphoreGive(buttons.lock);
-                        if (StateQueue) {
-                            xQueueSendToFront(
-                                StateQueue,
-                                &next_state_signal,
-                                portMAX_DELAY);
+                        if (PausedStateTask) {
+                            vTaskResume(PausedStateTask);
+                        }
+                        if (LeftPaddleTask) {
+                            vTaskSuspend(LeftPaddleTask);
+                        }
+                        if (RightPaddleTask) {
+                            vTaskSuspend(RightPaddleTask);
+                        }
+                        if (PongControlTask) {
+                            vTaskSuspend(PongControlTask);
                         }
                     }
                     else if (buttons.buttons[KEYCODE(R)]) {
@@ -576,21 +429,6 @@ void vPongControlTask(void *pvParameters)
                             SET_BALL_SPEED_AXES);
                         left_score = 0;
                         right_score = 0;
-                    }
-                    else if (buttons.buttons[KEYCODE(
-                                                 SPACE)]) {
-                        xSemaphoreGive(buttons.lock);
-                        opponent_mode =
-                            (opponent_mode + 1) % 2;
-                        if (opponent_mode) {
-                            vTaskResume(
-                                UDPControlTask);
-                        }
-                        else {
-                            vTaskSuspend(
-                                UDPControlTask);
-                        }
-                        vTaskDelay(200);
                     }
                     else {
                         xSemaphoreGive(buttons.lock);
@@ -646,7 +484,7 @@ void vPongControlTask(void *pvParameters)
                     }
                 }
 
-                vWakePaddles(opponent_mode);
+                vWakePaddles();
 
                 // Check if ball has made a collision
                 checkBallCollisions(my_ball, NULL, NULL);
@@ -671,8 +509,6 @@ void vPongControlTask(void *pvParameters)
                     vDrawWall(top_wall);
                     vDrawWall(bottom_wall);
                     vDrawHelpText();
-                    vDrawOpponentText(opponent_mode);
-                    vDrawNetDots();
 
                     // Check for score updates
                     if (RightScoreQueue) {
@@ -727,13 +563,23 @@ void vPongControlTask(void *pvParameters)
     }
 }
 
-static const char *paused_text = "PAUSED";
-static int paused_text_width;
-
+#define RESUME 0
+#define MAIN_MENU 1
 // TODO: Make sure that front and back buffer are filled
 void vPausedStateTask(void *pvParameters)
 {
-    tumGetTextSize((char *)paused_text, &paused_text_width, NULL);
+    TickType_t last_change = xTaskGetTickCount();
+
+    static const char *paused_text1 = "RESUME";
+    static const char *paused_text2 = "RETURN TO MAIN MENU";
+    static int paused_text_width1;
+    static int paused_text_width2;
+
+    static char selection = 0;
+
+    tumGetTextSize((char *)paused_text1, &paused_text_width1, NULL);
+    tumGetTextSize((char *)paused_text2, &paused_text_width2, NULL);
+
 
     while (1) {
         if (DrawSignal) {
@@ -742,7 +588,172 @@ void vPausedStateTask(void *pvParameters)
                 xGetButtonInput(); // Update global button data
 
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
-                    if (buttons.buttons[KEYCODE(P)]) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        if(selection == RESUME){
+                            if (PongControlTask) {
+                                vTaskResume(PongControlTask);
+                            }
+                            if (LeftPaddleTask) {
+                                vTaskResume(LeftPaddleTask);
+                            }
+                            if (RightPaddleTask) {
+                                vTaskResume(RightPaddleTask);
+                            }
+                            if (PausedStateTask) {
+                                vTaskSuspend(PausedStateTask);
+                            }
+                        }else if(selection == MAIN_MENU){
+                            last_change = xTaskGetTickCount();
+                            xQueueSendToFront(debounceQueue, &last_change, portMAX_DELAY);
+                            if (SinglePlayerMenu) {
+                                vTaskResume(SinglePlayerMenu);
+                            }
+                            if (PausedStateTask) {
+                                vTaskSuspend(PausedStateTask);
+                            }
+                        }
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+                
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        if (xTaskGetTickCount() - last_change >
+                            STATE_DEBOUNCE_DELAY) {
+                            last_change = xTaskGetTickCount();
+                            if(selection == RESUME){
+                                selection = MAIN_MENU;
+                            }else if(selection == MAIN_MENU){
+                                selection = RESUME;
+                            }
+                        }
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
+                        xSemaphoreGive(buttons.lock);
+                        if (xTaskGetTickCount() - last_change >
+                            STATE_DEBOUNCE_DELAY) {
+                            last_change = xTaskGetTickCount();
+                            if(selection == RESUME){
+                                selection = MAIN_MENU;
+                            }else if(selection == MAIN_MENU){
+                                selection = RESUME;
+                            }
+                        }
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+                // Don't suspend task until current execution loop has finished
+                // and held resources have been released
+                taskENTER_CRITICAL();
+
+                if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
+                    tumDrawClear(Black);
+
+                    if(selection == RESUME){
+                        tumDrawText((char *)paused_text1,
+                                    SCREEN_WIDTH / 2 -
+                                    paused_text_width1 / 2,
+                                    SCREEN_HEIGHT / 2 - 30, 
+                                    Blue);
+                        tumDrawText((char *)paused_text2,
+                                    SCREEN_WIDTH / 2 -
+                                    paused_text_width2 / 2,
+                                    SCREEN_HEIGHT / 2 + 30, 
+                                    White);
+                    }else if(selection == MAIN_MENU){
+                        tumDrawText((char *)paused_text1,
+                                    SCREEN_WIDTH / 2 -
+                                    paused_text_width1 / 2,
+                                    SCREEN_HEIGHT / 2 - 30, 
+                                    White);
+                        tumDrawText((char *)paused_text2,
+                                    SCREEN_WIDTH / 2 -
+                                    paused_text_width2 / 2,
+                                    SCREEN_HEIGHT / 2 + 30, 
+                                    Blue);                        
+                    }
+                }
+
+                xSemaphoreGive(ScreenLock);
+
+                taskEXIT_CRITICAL();
+
+                vTaskDelay(10);
+            }
+        }
+    }
+}
+
+
+
+void vSinglePlayerMenu(void *pvParameters) {
+    
+    TickType_t last_change = 0;
+    debounceQueue = xQueueCreate(1, sizeof(TickType_t));
+    restartGameQueue = xQueueCreate(1, sizeof(unsigned int));
+    static const unsigned int restartSignal = 1;
+
+    static const char *singleplayer_text = "SIGNLE-PLAYER";
+    static const char *multiplayer_text = "MULTIPLAYER";
+    static const char *highscore_text = "HIGH-SCORE";
+    static const char *cheats_text = "CHEATS";
+    static const char *exit_text = "EXIT";
+
+    static int text_height;
+    static int singleplayer_text_width;
+    static int multiplayer_text_width;
+    static int highscore_text_width;
+    static int cheats_text_width;
+    static int exit_text_width;
+
+    tumGetTextSize((char *)singleplayer_text, &singleplayer_text_width, &text_height);
+    tumGetTextSize((char *)multiplayer_text, &multiplayer_text_width, NULL);
+    tumGetTextSize((char *)highscore_text, &highscore_text_width, NULL);
+    tumGetTextSize((char *)cheats_text, &cheats_text_width, NULL);
+    tumGetTextSize((char *)exit_text, &exit_text_width, NULL);
+   
+    while (1) {
+        if (DrawSignal) {
+            if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                pdTRUE) {
+                xGetButtonInput(); // Update global button data
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        if (last_change){
+                            xQueueReceive(debounceQueue, &last_change, 0);
+                        }
+                        if (xTaskGetTickCount() - last_change >
+                            STATE_DEBOUNCE_DELAY) {
+                            last_change = xTaskGetTickCount();
+                            if (PongControlTask) {
+                                vTaskResume(PongControlTask);
+                            }
+                            if (LeftPaddleTask) {
+                                vTaskResume(LeftPaddleTask);
+                            }
+                            if (RightPaddleTask) {
+                                vTaskResume(RightPaddleTask);
+                            }
+                            xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
+                            if (SinglePlayerMenu) {
+                                vTaskSuspend(SinglePlayerMenu);
+                            }
+                        }
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &prev_state_signal,
+                            portMAX_DELAY);
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
                         xSemaphoreGive(buttons.lock);
                         xQueueSendToFront(
                             StateQueue,
@@ -759,11 +770,428 @@ void vPausedStateTask(void *pvParameters)
                 if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
                     tumDrawClear(Black);
 
-                    tumDrawText((char *)paused_text,
+                    tumDrawText((char *)singleplayer_text,
                                 SCREEN_WIDTH / 2 -
-                                paused_text_width /
-                                2,
-                                SCREEN_HEIGHT / 2, Red);
+                                singleplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 6 * text_height,
+                                Blue);
+                    tumDrawText((char *)multiplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                multiplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 3 * text_height,
+                                White);
+                    tumDrawText((char *)highscore_text,
+                                SCREEN_WIDTH / 2 -
+                                highscore_text_width / 2,
+                                SCREEN_HEIGHT / 2, 
+                                White);
+                    tumDrawText((char *)cheats_text,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 3 * text_height,
+                                White);         
+                    tumDrawText((char *)exit_text,
+                                SCREEN_WIDTH / 2 -
+                                exit_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 6 * text_height,
+                                White);                                
+                }
+
+                xSemaphoreGive(ScreenLock);
+
+                taskEXIT_CRITICAL();
+
+                vTaskDelay(10);
+            }
+        }
+    }
+}
+
+void vMultiPlayerMenu(void *pvParameters) {
+    
+    static const char *singleplayer_text = "SIGNLE-PLAYER";
+    static const char *multiplayer_text = "MULTIPLAYER";
+    static const char *highscore_text = "HIGH-SCORE";
+    static const char *cheats_text = "CHEATS";
+    static const char *exit_text = "EXIT";
+
+    static int text_height;
+    static int singleplayer_text_width;
+    static int multiplayer_text_width;
+    static int highscore_text_width;
+    static int cheats_text_width;
+    static int exit_text_width;
+
+
+    tumGetTextSize((char *)singleplayer_text, &singleplayer_text_width, &text_height);
+    tumGetTextSize((char *)multiplayer_text, &multiplayer_text_width, NULL);
+    tumGetTextSize((char *)highscore_text, &highscore_text_width, NULL);
+    tumGetTextSize((char *)cheats_text, &cheats_text_width, NULL);
+    tumGetTextSize((char *)exit_text, &exit_text_width, NULL);
+   
+    while (1) {
+        if (DrawSignal) {
+            if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                pdTRUE) {
+                xGetButtonInput(); // Update global button data
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        /*xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                        */
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &prev_state_signal,
+                            portMAX_DELAY);
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                // Don't suspend task until current execution loop has finished
+                // and held resources have been released
+                taskENTER_CRITICAL();
+
+                if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
+                    tumDrawClear(Black);
+
+                    tumDrawText((char *)singleplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                singleplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 6 * text_height,
+                                White);
+                    tumDrawText((char *)multiplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                multiplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 3 * text_height,
+                                Blue);
+                    tumDrawText((char *)highscore_text,
+                                SCREEN_WIDTH / 2 -
+                                highscore_text_width / 2,
+                                SCREEN_HEIGHT / 2, 
+                                White);
+                    tumDrawText((char *)cheats_text,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 3 * text_height,
+                                White);         
+                    tumDrawText((char *)exit_text,
+                                SCREEN_WIDTH / 2 -
+                                exit_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 6 * text_height,
+                                White);                                
+                }
+
+                xSemaphoreGive(ScreenLock);
+
+                taskEXIT_CRITICAL();
+
+                vTaskDelay(10);
+            }
+        }
+    }
+}
+void vScoreMenu(void *pvParameters) {
+    
+    static const char *singleplayer_text = "SIGNLE-PLAYER";
+    static const char *multiplayer_text = "MULTIPLAYER";
+    static const char *highscore_text = "HIGH-SCORE";
+    static const char *cheats_text = "CHEATS";
+    static const char *exit_text = "EXIT";
+
+    static int text_height;
+    static int singleplayer_text_width;
+    static int multiplayer_text_width;
+    static int highscore_text_width;
+    static int cheats_text_width;
+    static int exit_text_width;
+
+
+    tumGetTextSize((char *)singleplayer_text, &singleplayer_text_width, &text_height);
+    tumGetTextSize((char *)multiplayer_text, &multiplayer_text_width, NULL);
+    tumGetTextSize((char *)highscore_text, &highscore_text_width, NULL);
+    tumGetTextSize((char *)cheats_text, &cheats_text_width, NULL);
+    tumGetTextSize((char *)exit_text, &exit_text_width, NULL);
+   
+    while (1) {
+        if (DrawSignal) {
+            if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                pdTRUE) {
+                xGetButtonInput(); // Update global button data
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        /*xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                        */
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &prev_state_signal,
+                            portMAX_DELAY);
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                // Don't suspend task until current execution loop has finished
+                // and held resources have been released
+                taskENTER_CRITICAL();
+
+                if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
+                    tumDrawClear(Black);
+
+                    tumDrawText((char *)singleplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                singleplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 6 * text_height,
+                                White);
+                    tumDrawText((char *)multiplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                multiplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 3 * text_height,
+                                White);
+                    tumDrawText((char *)highscore_text,
+                                SCREEN_WIDTH / 2 -
+                                highscore_text_width / 2,
+                                SCREEN_HEIGHT / 2, 
+                                Blue);
+                    tumDrawText((char *)cheats_text,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 3 * text_height,
+                                White);         
+                    tumDrawText((char *)exit_text,
+                                SCREEN_WIDTH / 2 -
+                                exit_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 6 * text_height,
+                                White);                                
+                }
+
+                xSemaphoreGive(ScreenLock);
+
+                taskEXIT_CRITICAL();
+
+                vTaskDelay(10);
+            }
+        }
+    }
+}
+void vCheatsMenu(void *pvParameters) {
+    
+    static const char *singleplayer_text = "SIGNLE-PLAYER";
+    static const char *multiplayer_text = "MULTIPLAYER";
+    static const char *highscore_text = "HIGH-SCORE";
+    static const char *cheats_text = "CHEATS";
+    static const char *exit_text = "EXIT";
+
+    static int text_height;
+    static int singleplayer_text_width;
+    static int multiplayer_text_width;
+    static int highscore_text_width;
+    static int cheats_text_width;
+    static int exit_text_width;
+
+
+    tumGetTextSize((char *)singleplayer_text, &singleplayer_text_width, &text_height);
+    tumGetTextSize((char *)multiplayer_text, &multiplayer_text_width, NULL);
+    tumGetTextSize((char *)highscore_text, &highscore_text_width, NULL);
+    tumGetTextSize((char *)cheats_text, &cheats_text_width, NULL);
+    tumGetTextSize((char *)exit_text, &exit_text_width, NULL);
+   
+    while (1) {
+        if (DrawSignal) {
+            if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                pdTRUE) {
+                xGetButtonInput(); // Update global button data
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        /*xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                        */
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &prev_state_signal,
+                            portMAX_DELAY);
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                // Don't suspend task until current execution loop has finished
+                // and held resources have been released
+                taskENTER_CRITICAL();
+
+                if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
+                    tumDrawClear(Black);
+
+                    tumDrawText((char *)singleplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                singleplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 6 * text_height,
+                                White);
+                    tumDrawText((char *)multiplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                multiplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 3 * text_height,
+                                White);
+                    tumDrawText((char *)highscore_text,
+                                SCREEN_WIDTH / 2 -
+                                highscore_text_width / 2,
+                                SCREEN_HEIGHT / 2, 
+                                White);
+                    tumDrawText((char *)cheats_text,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 3 * text_height,
+                                Blue);         
+                    tumDrawText((char *)exit_text,
+                                SCREEN_WIDTH / 2 -
+                                exit_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 6 * text_height,
+                                White);                                
+                }
+
+                xSemaphoreGive(ScreenLock);
+
+                taskEXIT_CRITICAL();
+
+                vTaskDelay(10);
+            }
+        }
+    }
+}
+void vExitMenu(void *pvParameters) {
+    
+    static const char *singleplayer_text = "SIGNLE-PLAYER";
+    static const char *multiplayer_text = "MULTIPLAYER";
+    static const char *highscore_text = "HIGH-SCORE";
+    static const char *cheats_text = "CHEATS";
+    static const char *exit_text = "EXIT";
+
+    static int text_height;
+    static int singleplayer_text_width;
+    static int multiplayer_text_width;
+    static int highscore_text_width;
+    static int cheats_text_width;
+    static int exit_text_width;
+
+
+    tumGetTextSize((char *)singleplayer_text, &singleplayer_text_width, &text_height);
+    tumGetTextSize((char *)multiplayer_text, &multiplayer_text_width, NULL);
+    tumGetTextSize((char *)highscore_text, &highscore_text_width, NULL);
+    tumGetTextSize((char *)cheats_text, &cheats_text_width, NULL);
+    tumGetTextSize((char *)exit_text, &exit_text_width, NULL);
+   
+    while (1) {
+        if (DrawSignal) {
+            if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
+                pdTRUE) {
+                xGetButtonInput(); // Update global button data
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                        xSemaphoreGive(buttons.lock);
+                        exit(EXIT_SUCCESS);
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                    if (buttons.buttons[KEYCODE(UP)] || buttons.buttons[KEYCODE(W)]) {
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &prev_state_signal,
+                            portMAX_DELAY);
+                    }else if(buttons.buttons[KEYCODE(DOWN)] || buttons.buttons[KEYCODE(S)]){
+                        xSemaphoreGive(buttons.lock);
+                        xQueueSendToFront(
+                            StateQueue,
+                            &next_state_signal,
+                            portMAX_DELAY);
+                    }
+                    xSemaphoreGive(buttons.lock);
+                }
+
+                // Don't suspend task until current execution loop has finished
+                // and held resources have been released
+                taskENTER_CRITICAL();
+
+                if (xSemaphoreTake(ScreenLock, 0) == pdTRUE) {
+                    tumDrawClear(Black);
+
+                    tumDrawText((char *)singleplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                singleplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 6 * text_height,
+                                White);
+                    tumDrawText((char *)multiplayer_text,
+                                SCREEN_WIDTH / 2 -
+                                multiplayer_text_width / 2,
+                                SCREEN_HEIGHT / 2 - 3 * text_height,
+                                White);
+                    tumDrawText((char *)highscore_text,
+                                SCREEN_WIDTH / 2 -
+                                highscore_text_width / 2,
+                                SCREEN_HEIGHT / 2, 
+                                White);
+                    tumDrawText((char *)cheats_text,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 3 * text_height,
+                                White);         
+                    tumDrawText((char *)exit_text,
+                                SCREEN_WIDTH / 2 -
+                                exit_text_width / 2,
+                                SCREEN_HEIGHT / 2 + 6 * text_height,
+                                Blue);                                
                 }
 
                 xSemaphoreGive(ScreenLock);
@@ -822,22 +1250,58 @@ int pongInit(void)
         PRINT_TASK_ERROR("PongControlTask");
         goto err_pongcontrol;
     }
-    if (xTaskCreate(vUDPControlTask, "UDPControlTask",
+    if (xTaskCreate(vSinglePlayerMenu, "SinglePlayerMenu",
                     mainGENERIC_STACK_SIZE, NULL, mainGENERIC_PRIORITY,
-                    &UDPControlTask) != pdPASS) {
-        PRINT_TASK_ERROR("UDPControlTask");
-        goto err_udpcontrol;
+                    &SinglePlayerMenu) != pdPASS) {
+        PRINT_TASK_ERROR("SinglePlayerMenu");
+        goto err_singlemenu;
+    }
+    if (xTaskCreate(vMultiPlayerMenu, "MultiPlayerMenu",
+                    mainGENERIC_STACK_SIZE, NULL, mainGENERIC_PRIORITY,
+                    &MultiPlayerMenu) != pdPASS) {
+        PRINT_TASK_ERROR("SinglePlayerMenu");
+        goto err_multimenu;
+    }
+    if (xTaskCreate(vScoreMenu, "ScoreMenu",
+                    mainGENERIC_STACK_SIZE, NULL, mainGENERIC_PRIORITY,
+                    &ScoreMenu) != pdPASS) {
+        PRINT_TASK_ERROR("ScoreMenu");
+        goto err_scoremenu;
+    }
+    if (xTaskCreate(vCheatsMenu, "CheatsMenu",
+                    mainGENERIC_STACK_SIZE, NULL, mainGENERIC_PRIORITY,
+                    &CheatsMenu) != pdPASS) {
+        PRINT_TASK_ERROR("CheatsMenu");
+        goto err_cheatsmenu;
+    }
+    if (xTaskCreate(vExitMenu, "ExitMenu",
+                    mainGENERIC_STACK_SIZE, NULL, mainGENERIC_PRIORITY,
+                    &ExitMenu) != pdPASS) {
+        PRINT_TASK_ERROR("ExitMenu");
+        goto err_exitemenu;
     }
 
     vTaskSuspend(LeftPaddleTask);
     vTaskSuspend(RightPaddleTask);
     vTaskSuspend(PongControlTask);
     vTaskSuspend(PausedStateTask);
-    vTaskSuspend(UDPControlTask);
+    vTaskSuspend(SinglePlayerMenu);
+    vTaskSuspend(MultiPlayerMenu);
+    vTaskSuspend(ScoreMenu);
+    vTaskSuspend(CheatsMenu);
+    vTaskSuspend(ExitMenu);
 
     return 0;
 
-err_udpcontrol:
+err_exitemenu:
+    vTaskDelete(CheatsMenu);
+err_cheatsmenu:
+    vTaskDelete(ScoreMenu);
+err_scoremenu:
+    vTaskDelete(MultiPlayerMenu);
+err_multimenu:
+    vTaskDelete(SinglePlayerMenu);
+err_singlemenu:
     vTaskDelete(PongControlTask);
 err_pongcontrol:
     vTaskDelete(PausedStateTask);

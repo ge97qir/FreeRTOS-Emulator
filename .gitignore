@@ -140,3 +140,6 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Sublime IDE
+*.sublime-workspace

@@ -7,6 +7,8 @@
 #define NEXT_TASK 0
 #define PREV_TASK 1
 
+#define STATE_DEBOUNCE_DELAY 300
+
 #define PRINT_TASK_ERROR(task) PRINT_ERROR("Failed to print task ##task");
 
 extern const unsigned char next_state_signal;

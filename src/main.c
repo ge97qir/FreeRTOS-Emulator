@@ -19,14 +19,19 @@
 
 #define STATE_QUEUE_LENGTH 1
 
-#define STATE_COUNT 2
+#define STATE_COUNT 5
+#define MENU_STATE_COUNT 5
+
+#define SIGNLE_PLAYER 0
+#define MULTIPLAYER 1
+#define HIGH_SCORE 2
+#define CHEATS 3
+#define EXIT 4
 
 #define STATE_PLAYING 0
 #define STATE_PAUSED 1
 
 #define STARTING_STATE STATE_PLAYING
-
-#define STATE_DEBOUNCE_DELAY 300
 
 #ifdef TRACE_FUNCTIONS
 #include "tracer.h"
@@ -143,12 +148,10 @@ void changeState(volatile unsigned char *state, unsigned char forwards)
  */
 void basicSequentialStateMachine(void *pvParameters)
 {
-    unsigned char current_state = STARTING_STATE; // Default state
+    unsigned char current_state = SIGNLE_PLAYER; // Default state
     // Only re-evaluate state if it has changed
     unsigned char state_changed = 1;
     unsigned char input = 0;
-
-    const int state_change_period = STATE_DEBOUNCE_DELAY;
 
     TickType_t last_change = xTaskGetTickCount();
 
@@ -162,7 +165,7 @@ void basicSequentialStateMachine(void *pvParameters)
             if (xQueueReceive(StateQueue, &input, portMAX_DELAY) ==
                 pdTRUE)
                 if (xTaskGetTickCount() - last_change >
-                    state_change_period) {
+                    STATE_DEBOUNCE_DELAY) {
                     changeState(&current_state, input);
                     state_changed = 1;
                     last_change = xTaskGetTickCount();
@@ -172,32 +175,59 @@ initial_state:
         // Handle current state
         if (state_changed) {
             switch (current_state) {
-                case STATE_PLAYING:
-                    if (PausedStateTask) {
-                        vTaskSuspend(PausedStateTask);
+                case SIGNLE_PLAYER:
+                    if (MultiPlayerMenu) {
+                        vTaskSuspend(MultiPlayerMenu);
                     }
-                    if (PongControlTask) {
-                        vTaskResume(PongControlTask);
+                    if (ExitMenu) {
+                        vTaskSuspend(ExitMenu);
                     }
-                    if (LeftPaddleTask) {
-                        vTaskResume(LeftPaddleTask);
-                    }
-                    if (RightPaddleTask) {
-                        vTaskResume(RightPaddleTask);
+                    if (SinglePlayerMenu) {
+                        vTaskResume(SinglePlayerMenu);
                     }
                     break;
-                case STATE_PAUSED:
-                    if (PongControlTask) {
-                        vTaskSuspend(PongControlTask);
+                case MULTIPLAYER:
+                    if (SinglePlayerMenu) {
+                        vTaskSuspend(SinglePlayerMenu);
                     }
-                    if (LeftPaddleTask) {
-                        vTaskSuspend(LeftPaddleTask);
+                    if (ScoreMenu) {
+                        vTaskSuspend(ScoreMenu);
                     }
-                    if (RightPaddleTask) {
-                        vTaskSuspend(RightPaddleTask);
+                    if (MultiPlayerMenu) {
+                        vTaskResume(MultiPlayerMenu);
                     }
-                    if (PausedStateTask) {
-                        vTaskResume(PausedStateTask);
+                    break;
+                case HIGH_SCORE:
+                    if (MultiPlayerMenu) {
+                        vTaskSuspend(MultiPlayerMenu);
+                    }
+                    if (CheatsMenu) {
+                        vTaskSuspend(CheatsMenu);
+                    }
+                    if (ScoreMenu) {
+                        vTaskResume(ScoreMenu);
+                    }
+                    break;
+                case CHEATS:
+                     if (ScoreMenu) {
+                        vTaskSuspend(ScoreMenu);
+                    }
+                    if (ExitMenu) {
+                        vTaskSuspend(ExitMenu);
+                    }
+                    if (CheatsMenu) {
+                        vTaskResume(CheatsMenu);
+                    } 
+                    break;
+                case EXIT:
+                    if (SinglePlayerMenu) {
+                        vTaskSuspend(SinglePlayerMenu);
+                    }
+                    if (CheatsMenu) {
+                        vTaskSuspend(CheatsMenu);
+                    }
+                    if (ExitMenu) {
+                        vTaskResume(ExitMenu);
                     }
                     break;
                 default:

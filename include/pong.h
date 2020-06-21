@@ -12,7 +12,11 @@ extern TaskHandle_t LeftPaddleTask;
 extern TaskHandle_t RightPaddleTask;
 extern TaskHandle_t PongControlTask;
 extern TaskHandle_t PausedStateTask;
-extern TaskHandle_t UDPControlTask;
+extern TaskHandle_t SinglePlayerMenu;
+extern TaskHandle_t MultiPlayerMenu;
+extern TaskHandle_t ScoreMenu;
+extern TaskHandle_t CheatsMenu;
+extern TaskHandle_t ExitMenu;
 
 int pongInit(void);
 
