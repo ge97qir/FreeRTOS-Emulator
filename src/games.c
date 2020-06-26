@@ -1153,8 +1153,8 @@ ball_t *shootBulletPlayer(ball_t *bullet, signed int ship_position){
     setBallLocation(bullet, 
                     // ship x coordinate
                     ship_position,
-                    // the bottom of the ship (adding the height so the bullet originates from the bottom_wall)
-                    MY_SHIP_Y_POSITION + MY_SHIP_HEIGHT);
+                    // the middle of the ship (adding half the height so the bullet originates from the middle of the wall)
+                    MY_SHIP_Y_POSITION + MY_SHIP_HEIGHT / 2);
     setBallSpeed(bullet, 0, -BULLET_SPEED, BULLET_SPEED, SET_BALL_SPEED_Y);
     return bullet;
 }

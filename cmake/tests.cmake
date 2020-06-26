@@ -2,12 +2,11 @@ include(ExternalProject)
 find_package(Git REQUIRED)
 
 SET(CHECK_FILES
-    #${PROJECT_SOURCE_DIR}/lib/FreeRTOS_Kernel/include/*.h
-    #${PROJECT_SOURCE_DIR}/lib/FreeRTOS_Kernel/portable/GCC/Posix/*.h
     ${PROJECT_SOURCE_DIR}/include/*.h
     ${PROJECT_SOURCE_DIR}/lib/Gfx/include/*.h
+    ${PROJECT_SOURCE_DIR}/lib/Gfx/*.c
     ${PROJECT_SOURCE_DIR}/lib/AsyncIO/include/*.h
-    #${PROJECT_SOURCE_DIR}/lib/tracer/include/*.h
+    ${PROJECT_SOURCE_DIR}/lib/AsyncIO/*.c
     ${PROJECT_SOURCE_DIR}/src/*.c)
 
 SET(TIDY_SOURCES
@@ -172,7 +171,7 @@ if(ENABLE_CPPCHECK)
     )
 
     list(APPEND CPPCHECK_ARGS
-        --enable=warning,style,performance,portability,unusedFunction
+        --enable=warning,style,performance,portability
         --std=c99
         --verbose
         --error-exitcode=1

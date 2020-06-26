@@ -8,6 +8,7 @@
 #include "TUM_Sound.h"
 #include "TUM_Ball.h"
 #include "TUM_Draw.h"
+#include "TUM_Print.h"
 
 #include "AsyncIO.h"
 
@@ -51,10 +52,10 @@ void checkDraw(unsigned char status, const char *msg)
 {
     if (status) {
         if (msg)
-            fprintf(stderr, "[ERROR] %s, %s\n", msg,
+            fprints(stderr, "[ERROR] %s, %s\n", msg,
                     tumGetErrorMessage());
         else {
-            fprintf(stderr, "[ERROR] %s\n", tumGetErrorMessage());
+            fprints(stderr, "[ERROR] %s\n", tumGetErrorMessage());
         }
     }
 }
@@ -260,11 +261,18 @@ void vSwapBuffers(void *pvParameters)
     }
 }
 
+
 int main(int argc, char *argv[])
 {
     char *bin_folder_path = tumUtilGetBinFolderPath(argv[0]);
 
-    printf("Initializing: ");
+    prints("Initializing: ");
+
+    //  Note PRINT_ERROR is not thread safe and is only used before the
+    //  scheduler is started. There are thread safe print functions in
+    //  TUM_Print.h, `prints` and `fprints` that work exactly the same as
+    //  `printf` and `fprintf`. So you can read the documentation on these
+    //  functions to understand the functionality.
 
     if (tumDrawInit(bin_folder_path)) {
         PRINT_ERROR("Failed to intialize drawing");
@@ -280,6 +288,7 @@ int main(int argc, char *argv[])
         PRINT_ERROR("Failed to initialize audio");
         goto err_init_audio;
     }
+
 
     atexit(aIODeinit);
 
