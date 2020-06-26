@@ -2,9 +2,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "FreeRTOS.h"
-#include "task.h"
-
 #include "TUM_Utils.h"
 #include "TUM_Font.h"
 #include "TUM_Event.h"
@@ -15,12 +12,15 @@
 #include "AsyncIO.h"
 
 #include "main.h"
-#include "pong.h"
+#include "games.h"
+#include "menu.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define STATE_QUEUE_LENGTH 1
 
 #define STATE_COUNT 5
-#define MENU_STATE_COUNT 5
 
 #define SIGNLE_PLAYER 0
 #define MULTIPLAYER 1
@@ -28,10 +28,12 @@
 #define CHEATS 3
 #define EXIT 4
 
+/*
 #define STATE_PLAYING 0
 #define STATE_PAUSED 1
 
 #define STARTING_STATE STATE_PLAYING
+*/
 
 #ifdef TRACE_FUNCTIONS
 #include "tracer.h"
@@ -304,7 +306,8 @@ int main(int argc, char *argv[])
         goto err_bufferswap;
     }
 
-    pongInit();
+    menuInit();
+    gamesInit();
 
     vTaskStartScheduler();
 
