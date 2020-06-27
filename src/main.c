@@ -109,9 +109,9 @@ void vDrawFPS(void)
 
     if (!tumGetTextSize((char *)str, &text_width, NULL))
         checkDraw(tumDrawText(str,
-                              (SCREEN_WIDTH / 2) - (text_width / 2),
+                              SCREEN_WIDTH - text_width,
                               SCREEN_HEIGHT - DEFAULT_FONT_SIZE * 1.5,
-                              Blue),
+                              White),
                   __FUNCTION__);
 
     tumFontSelectFontFromHandle(cur_font);

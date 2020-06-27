@@ -306,6 +306,7 @@ void vSinglePlayerMenu(void *pvParameters) {
 void vMultiPlayerMenu(void *pvParameters) {
 
     TickType_t last_change = 0;
+    static const unsigned int restartSignal = 1;
     static unsigned int gameModeMulti = MULTIPLAYER_MODE;
 
     while (1) {
@@ -326,7 +327,7 @@ void vMultiPlayerMenu(void *pvParameters) {
                             if (MultiPlayerGame) {
                                 vTaskResume(MultiPlayerGame);
                             }
-                            //xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
+                            xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
                             xQueueSendToFront(gameModeQueue, &gameModeMulti, portMAX_DELAY);
                             if (MultiPlayerMenu) {
                                 vTaskSuspend(MultiPlayerMenu);
