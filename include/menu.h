@@ -11,6 +11,7 @@
 #define MULTIPLAYER_MODE 1
 
 extern TaskHandle_t PausedStateTask;
+
 extern TaskHandle_t SinglePlayerMenu;
 extern TaskHandle_t MultiPlayerMenu;
 extern TaskHandle_t ScoreMenu;

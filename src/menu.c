@@ -16,7 +16,7 @@
 #include "main.h"
 #include "games.h" 
 #include "menu.h"
-
+// FreeRTOS includes
 #include "queue.h"
 
 TaskHandle_t PausedStateTask = NULL;
@@ -44,7 +44,7 @@ static int highscore_text_width;
 static int cheats_text_width;
 static int exit_text_width;
 
-// TODO: Make sure that front and back buffer are filled
+
 void vPausedStateTask(void *pvParameters)
 {
     static TickType_t last_change = 0;;

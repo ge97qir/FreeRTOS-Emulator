@@ -244,7 +244,7 @@ void vSwapBuffers(void *pvParameters)
 {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
-    const TickType_t frameratePeriod = 20;
+    const TickType_t frameratePeriod = 5;
 
     tumDrawBindThread(); // Setup Rendering handle with correct GL context
 
