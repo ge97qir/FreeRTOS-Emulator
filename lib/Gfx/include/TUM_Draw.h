@@ -42,11 +42,11 @@
 /**
  * Sets the width (in pixels) of the screen
  */
-#define SCREEN_WIDTH 800  //960
+#define SCREEN_WIDTH 960  //960
 /**
  * Sets the height (in pixels) of the screen
  */
-#define SCREEN_HEIGHT 720  //720
+#define SCREEN_HEIGHT 960  //720
 
 /**
  * @defgroup tum_draw TUM Drawing API

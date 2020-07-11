@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <math.h>
 #include <time.h>
 #include <SDL2/SDL_scancode.h>
 
@@ -38,6 +39,10 @@
 #define PADDLE_EDGE_OFFSET 10
 #define PADDLE_WIDTH 10
 
+// GAME PROPERTIES
+//#define MAX_LEVEL 3
+#define RESET 1
+
 // SPACE SHIP DIMENSIONS
 #define MY_SHIP_WIDTH 52
 #define MY_SHIP_HEIGHT 30
@@ -55,15 +60,14 @@
 #define ENEMY_BULLET 1
 #define DESTROY_BULLET 1
 
-#define BULLET_RADIUS 1
+#define BULLET_RADIUS 2
 //#define BULLET_WIDTH 2 
 //#define BULLET_HEIGHT 5
-#define BULLET_SPEED 800
+#define BULLET_SPEED 1700
 #define RESET_BULLET 9999
 
 // bullet is shot after 2 seconds since the beginning of the game 
 #define BULLET_START_DELAY 2000
-
 
 // INVADERS PROPERTIES
 #define ENEMY_ROWS 5
@@ -83,9 +87,13 @@
 #define BUNKER_HEIGHT 6 
 // individual bunker block is a square
 #define BUNKER_BLOCK_LENGTH 13 // unit in pixels
-#define DISTANCE_BETWEEN_BUNKERS (1.6 * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH)
+#define DISTANCE_BETWEEN_BUNKERS (SCREEN_WIDTH - NUMBER_OF_BUNKERS * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH) / (NUMBER_OF_BUNKERS + 1)
 //#define BUNKER_CLEARANCE 100 // distance from the ground to the bunker top
 
+// MYSTERY SHIP
+#define MYSTERY_SHIP_POSITION_Y 138
+#define MYSTERY_SHIP_SPEED 1
+#define MYSTERY_SHIP_PERIOD 20000    // 20 seconds
 
 /** PADDLE MOVING FLAGS */
 #define START_LEFT 1
@@ -618,24 +626,142 @@ void vPongControlTask(void *pvParameters)
     }
 }
 
-void vDrawGameOver(void){
-    static char str[100] = { 0 };
-    static int text_width;
+
+// this will be renamed player_data but now the pong is using that struct
+typedef struct player_info {
+    wall_t *ship;
+    signed int ship_position;
+    unsigned short lives;
+    unsigned int score;
+} space_ship_t;
+
+typedef struct bullet_data {
+    ball_t *bullet;
+    //will have to implement this later in the bullet shotting functions for the mothership
+    char bullet_state; // ACTIVE (on the screeen) or PASSIVE (not on she screen)
+} bullet_t;
+
+typedef struct invader_unit_data {
+    wall_t *enemy;
+    unsigned int *points; // how much is the enemy worth
+    unsigned short dead; // alive or dead so we know if we need to draw it and detect colisions
+    unsigned short image_state; // alternating between images
+    unsigned int *width;
+    unsigned int *height;
+} enemy_t;
+
+typedef struct invader_group_data {
+    enemy_t enemys[ENEMY_ROWS][ENEMY_COLUMNS];
+    unsigned short direction;
+    unsigned int killed_invaders;
+    unsigned int speed; // speed is a function of killed invaders
+} invaders_t;
+
+typedef struct bunker_block {
+    wall_t *bunker_block;
+    unsigned short block_row;
+    unsigned short block_column;
+    unsigned short dead; // alive or dead so whe know if we need to draw it and detect colisions
+} block_t;
+
+typedef struct bunker_data {
+    block_t bunker[BUNKER_HEIGHT][BUNKER_WIDTH];
+    unsigned int bunker_y_location; // point in the top left corner of the bunker
+    unsigned int bunker_x_location;
+} bunker_t;
+
+void vDrawNextLevel(void){
+    static char str1[100] = { 0 };
+    static char str2[100] = { 0 };
+    static int text_width1;
+    static int text_width2;
     static int text_height;
+    static unsigned int blinky = 0;
+
     ssize_t prev_font_size = tumFontGetCurFontSize();
 
-    tumFontSetSize((ssize_t)40);
+    tumFontSetSize((ssize_t)30);
 
-    sprintf(str, "GAME OVER");
+    sprintf(str1, "YOU ADVANCED TO THE NEXT LEVEL!");
 
-    if (!tumGetTextSize((char *)str, &text_width, &text_height))
-        tumDrawText(str,
-                    SCREEN_WIDTH / 2 - text_width / 2,
+    if (!tumGetTextSize((char *)str1, &text_width1, &text_height))
+        tumDrawText(str1,
+                    SCREEN_WIDTH / 2 - text_width1 / 2,
                     SCREEN_HEIGHT / 2 - text_height / 2, White);
+
+    if(blinky <= 50){
+        tumFontSetSize((ssize_t)15);
+
+        sprintf(str2, "PRESS SPACE TO CONTINUE");
+
+        if (!tumGetTextSize((char *)str2, &text_width2, NULL))
+            tumDrawText(str2,
+                        SCREEN_WIDTH / 2 - text_width2 / 2,
+                        SCREEN_HEIGHT / 2 + 2 * text_height, White);
+        blinky++;
+    }else if (blinky <= 100){
+        blinky++;
+    }else{
+        blinky = 0;
+    }
 
     tumFontSetSize(prev_font_size);   
 }
 
+
+void vDrawGameOver(void){
+    static char str1[100] = { 0 };
+    static char str2[100] = { 0 };
+    static int text_width1;
+    static int text_width2;
+    static int text_height;
+    static unsigned int blinky = 0;
+
+    ssize_t prev_font_size = tumFontGetCurFontSize();
+
+    tumFontSetSize((ssize_t)40);
+
+    sprintf(str1, "GAME OVER");
+
+    if (!tumGetTextSize((char *)str1, &text_width1, &text_height))
+        tumDrawText(str1,
+                    SCREEN_WIDTH / 2 - text_width1 / 2,
+                    SCREEN_HEIGHT / 2 - text_height / 2, White);
+    if(blinky <= 50){
+        tumFontSetSize((ssize_t)15);
+
+        sprintf(str2, "PRESS R TO RESTART");
+
+        if (!tumGetTextSize((char *)str2, &text_width2, NULL))
+            tumDrawText(str2,
+                        SCREEN_WIDTH / 2 - text_width2 / 2,
+                        SCREEN_HEIGHT / 2 + 2 * text_height, White);
+        blinky++;
+    }else if (blinky <= 100){
+        blinky++;
+    }else{
+        blinky = 0;
+    }
+
+    tumFontSetSize(prev_font_size);   
+}
+
+void vDrawLevel(unsigned int *level){
+    static char str[100] = { 0 };
+    static int text_width;
+    ssize_t prev_font_size = tumFontGetCurFontSize();
+
+    tumFontSetSize((ssize_t)20);
+
+    sprintf(str, "Level: %u", *level);
+
+    if (!tumGetTextSize((char *)str, &text_width, NULL))
+        tumDrawText(str,
+                    150,
+                    DEFAULT_FONT_SIZE * 1.5, White);
+
+    tumFontSetSize(prev_font_size);
+}
 
 void vDrawScore(unsigned int *score){
     static char str[100] = { 0 };
@@ -654,7 +780,7 @@ void vDrawScore(unsigned int *score){
     tumFontSetSize(prev_font_size);
 }
 
-void vDrawLives (unsigned short *lives, image_handle_t avatar){
+void vDrawLives (unsigned short *lives, image_handle_t avatar, space_ship_t *my_ship){
     static char str[100] = { 0 };
     static int text_width;
     static int text_height;
@@ -677,15 +803,16 @@ void vDrawLives (unsigned short *lives, image_handle_t avatar){
                                i * (5 + tumDrawGetLoadedImageWidth(avatar)),
                                SCREEN_HEIGHT - 8 - tumDrawGetLoadedImageHeight(avatar));
         }
-        /*else{
-            tumDrawFilledBox(my_ship.ship->x1, my_ship.ship->y1, 
-                             my_ship.ship->w, my_ship.ship->h, Green);
-        }*/
+        else{
+            tumDrawFilledBox(my_ship->ship->x1, my_ship->ship->y1, 
+                             my_ship->ship->w, my_ship->ship->h, Green);
+        }
     }
 }
 
-void vIncrement(signed int *position, int obj_width){
-    for (int i = 0; i < MY_SHIP_SPEED; i++){
+// carefull with the implementation better use setWallProperty*******************************
+void vIncrement(signed int *position, int obj_width, int speed){
+    for (int i = 0; i < speed; i++){
         if (position){
             if (*position <= SCREEN_WIDTH - obj_width / 2) {
                 (*position)++;
@@ -696,16 +823,34 @@ void vIncrement(signed int *position, int obj_width){
     }
 }
 
-void vDecrement(signed int *position, int obj_width){
-    for (int i = 0; i < MY_SHIP_SPEED; i++){
+void vDecrement(signed int *position, int obj_width, int speed){
+    for (int i = 0; i < speed; i++){
         if (position){
-        if (*position != 0 + obj_width / 2) {
-            (*position)--;
-        }else{
+            if (*position != 0 + obj_width / 2) {
+                (*position)--;
+            }else{
                 break;
-            }
+                }
         }
     }
+}
+
+void vExtraLives(unsigned short *lives, unsigned int *score){
+    static unsigned int extra_lives= 0;
+    if (*score == 0){
+        extra_lives = 0;
+    }
+
+    if (floor((*score) / 1000) - extra_lives){
+        // add lives if the player has less than 3 lives (3 lives = MAX_LIVES)
+        if (*lives < 3){
+            *lives += 1;
+        }
+        // we still need to add counter to extra lives since we add lives 
+        // when player reaches the threshold every 1000 points and do not add lives later
+        extra_lives++;
+    }
+
 }
 
 unsigned char xCheckPlayerInput(signed int *player_position_x, int obj_width){
@@ -713,12 +858,12 @@ unsigned char xCheckPlayerInput(signed int *player_position_x, int obj_width){
 
     if (xSemaphoreTake(buttons.lock, portMAX_DELAY) == pdTRUE) {
         if (buttons.buttons[KEYCODE(A)] || buttons.buttons[KEYCODE(LEFT)]) {
-            vDecrement(player_position_x, obj_width);
+            vDecrement(player_position_x, obj_width, MY_SHIP_SPEED);
             xSemaphoreGive(buttons.lock);
             return 1;
         }
         if (buttons.buttons[KEYCODE(D)] || buttons.buttons[KEYCODE(RIGHT)]) {
-            vIncrement(player_position_x, obj_width);
+            vIncrement(player_position_x, obj_width, MY_SHIP_SPEED);
             xSemaphoreGive(buttons.lock);
             return 1;
         }
@@ -727,73 +872,93 @@ unsigned char xCheckPlayerInput(signed int *player_position_x, int obj_width){
     return 0;
 }
 
-// this will be renamed player_data but now the pong is using that struct
-typedef struct player_info {
-    wall_t *ship;
-    signed int ship_position;
-    unsigned short lives;
-    unsigned int score;
-} space_ship_t;
 
-typedef struct bullet_data {
-    ball_t *bullet;
-    //will have to implement this later in the bullet shotting functions for the mothership
-    char bullet_state; // ACTIVE (on the screeen) or PASSIVE (not on she screen)
-} bullet_t;
+void bunkersReset (bunker_t *bunker){
+    for (int bh = 0; bh < BUNKER_HEIGHT; bh++){
+        for (int bw = 0; bw < BUNKER_WIDTH; bw++){
+            if (bunker->bunker[bh][bw].dead == DEAD){
+                bunker->bunker[bh][bw].dead = ALIVE; // set the state to alive  
+            }
+        }
+    }
+}
 
-typedef struct invader_unit_data {
-    wall_t *enemy;
-    unsigned int *points; // how much is the enemy worth
-    unsigned short dead; // alive or dead so we know if we need to draw it and detect colisions
-    unsigned short image_state; // alternating between images
-} enemy_t;
-
-typedef struct invader_group_data {
-    enemy_t enemys[ENEMY_ROWS][ENEMY_COLUMNS];
-    unsigned short direction;
-    unsigned int killed_invaders;
-    unsigned int speed; // speed is a function of killed invaders
-    unsigned int width;
-    unsigned int height;
-} invaders_t;
-
-typedef struct bunker_block {
-    wall_t *bunker_block;
-    unsigned short block_row;
-    unsigned short block_column;
-    unsigned short dead; // alive or dead so whe know if we need to draw it and detect colisions
-} block_t;
-
-typedef struct bunker_data {
-    block_t bunker[BUNKER_HEIGHT][BUNKER_WIDTH];
-    unsigned int bunker_y_location; // point in the top left corner of the bunker
-    unsigned int bunker_x_location;
-} bunker_t;
-
-
-void invadersReset (invaders_t *invaders, int *invader_width, int *invader_height){
+void invadersReset (invaders_t *invaders, unsigned int *invader_width, unsigned int *invader_height){
     for (int row = 0; row < ENEMY_ROWS; row++){
         for (int col = 0; col < ENEMY_COLUMNS; col++){
             invaders->killed_invaders = 0;
             invaders->direction = RIGHT;
             invaders->enemys[row][col].dead = ALIVE;
             invaders->enemys[row][col].image_state = 0; // resets the image state to initial image
-            setWallProperty(invaders->enemys[row][col].enemy,
+
+            if (row == 0 || row == 1){
+                setWallProperty(invaders->enemys[row][col].enemy,
                             0 + col * (*invader_width + GAP_SIZE),
                             SCREEN_HEIGHT / 2 - row * (2 * *invader_height), 
                             0, 0, SET_WALL_AXES);
+            }else if (row == 2 || row == 3){
+                setWallProperty(invaders->enemys[row][col].enemy,
+                            ((*invader_width - *invaders->enemys[row][col].width) / 2) 
+                            + col * (*invader_width + GAP_SIZE),
+                            SCREEN_HEIGHT / 2 - row * (2 * *invader_height), 
+                            0, 0, SET_WALL_AXES);
+            }else if (row == 4){
+                setWallProperty(invaders->enemys[row][col].enemy,
+                            ((*invader_width - *invaders->enemys[row][col].width) / 2) 
+                            + col * (*invader_width + GAP_SIZE),
+                            SCREEN_HEIGHT / 2 - row * (2 * *invader_height), 
+                            0, 0, SET_WALL_AXES);
+            }
         }
     }
 }
 
+void mysteryshipReset(enemy_t *mysteryship, unsigned int *direction){
+    *direction = LEFT;
+    mysteryship->dead = DEAD;
+}
+
+
+void updateMysteryshipPosition(enemy_t *mysteryship, unsigned int *direction){
+    
+    if (*direction == LEFT) {
+        if (mysteryship->enemy->x2 >= 0) {
+            setWallProperty(mysteryship->enemy, mysteryship->enemy->x1 - 2, 0, 0, 0, SET_WALL_X);
+        }
+        else{
+            // set the state to dead when out of the screen
+            mysteryship->dead = DEAD;
+        }
+    }
+    else if (*direction == RIGHT) {
+        if (mysteryship->enemy->x1 <= SCREEN_WIDTH) {
+            setWallProperty(mysteryship->enemy, mysteryship->enemy->x1 + 2, 0, 0, 0, SET_WALL_X);
+        }
+        else{
+            // set the state to dead when out of the screen
+            mysteryship->dead = DEAD;
+        }
+    }
+}
+
+
+// TO-DO:
 // need to add speed here in the function... how often the function gets called to increment the positions
-// speedn is a function of killed invaders... now I dont track killed invaders since the func is called in such a way
+// speed is a function of killed invaders... now I dont track killed invaders since the func is called in such a way
 // that increments only alive invaders, so I dont need to keep count of how many were killed
-void updateInvadersPosition(invaders_t *invaders, unsigned short *lives){
+void updateInvadersPosition(invaders_t *invaders, unsigned short *lives, unsigned char reset){
     static int row = 0;
     static int col = 0;
     static int change_direction = 0;    // 1 if edge is detected and invaders must change direction
-    static int descend = 0;             // 1 if edge is detected and invaders must descend 1 row
+    static int descend = 0;            // 1 if edge is detected and invaders must descend 1 row
+    if(reset){
+        row = 0;
+        col = 0;
+        change_direction = 0;
+        descend = 0;
+        return;
+    }
+
     if (invaders->direction == RIGHT){
         while(row < ENEMY_ROWS){
             while (col < ENEMY_COLUMNS){
@@ -889,20 +1054,22 @@ end_loop:
 
 // TO-DO: make hit detection universal with casting or accepting wall_t
 
-/*
-typedef struct bunker_block {
-    wall_t *bunker_block;
-    unsigned short block_row;
-    unsigned short block_column;
-    unsigned short dead; // alive or dead so whe know if we need to draw it and detect colisions
-} block_t;
-
-typedef struct bunker_data {
-    block_t bunker[BUNKER_HEIGHT][BUNKER_WIDTH];
-    unsigned int bunker_y_location; // point in the top left corner of the bunker
-    unsigned int bunker_x_location;
-} bunker_t;
-*/
+unsigned int bulletHitMysteryship(enemy_t *mysteryship, ball_t *bullet, unsigned int *player_score){
+    if (!mysteryship->dead){
+        // checking if the bullet is coliding with a specific invader
+        if (bullet->x >= mysteryship->enemy->x1 + 5 && 
+            bullet->x <= mysteryship->enemy->x2 - 5 &&
+            bullet->y >= mysteryship->enemy->y1 &&
+            bullet->y <= mysteryship->enemy->y2 - 15){
+            
+            mysteryship->dead = DEAD; // set the state to dead
+            //*player_score += *mysteryship->points;
+            *player_score += abs(rand() % 301); // mystery ship is worth random amount of points (max 300)
+            return 1;
+        }
+    }
+    return 0; // no collisions detected
+}
 
 // TO-DO: hit animation and sound
 unsigned int bulletHitBunker(bunker_t *bunker, ball_t *bullet){
@@ -916,6 +1083,7 @@ unsigned int bulletHitBunker(bunker_t *bunker, ball_t *bullet){
                     bullet->x <= bunker->bunker[bh][bw].bunker_block->x2 &&
                     bullet->y >= bunker->bunker[bh][bw].bunker_block->y1 &&
                     bullet->y <= bunker->bunker[bh][bw].bunker_block->y2){
+                    
                     bunker->bunker[bh][bw].dead = DEAD; // set the state to dead
                     return 1;
                 }
@@ -967,16 +1135,17 @@ unsigned int bulletHitPlayer(space_ship_t *player, ball_t *bullet){
 }
 
 void resetPlayerData (space_ship_t *player){
-    player->ship_position = SCREEN_WIDTH / 2;
     player->score = 0;
     player->lives = 3;
 }
 
-void updateBulletPosition(ball_t *bullet, unsigned int time_since_last_update){
-    if (bullet->y >= (0 + BULLET_RADIUS) && bullet->y <= (SCREEN_HEIGHT - BULLET_RADIUS)){
-        updateBallPosition(bullet, time_since_last_update);
+void updateBulletPosition(bullet_t *bullet_obj, unsigned int time_since_last_update){
+    // checking if the bullet is inside the "active" field where we are playing the game
+    if (bullet_obj->bullet->y >= (0 + BULLET_RADIUS) && bullet_obj->bullet->y <= (GROUND_POSITION - BULLET_RADIUS)){
+        updateBallPosition(bullet_obj->bullet, time_since_last_update);
     }else{
-        setBallSpeed(bullet, 0, 0, 0, SET_BALL_SPEED_Y);
+        setBallSpeed(bullet_obj->bullet, 0, 0, 0, SET_BALL_SPEED_Y);
+        bullet_obj->bullet_state = PASSIVE;
     }
 }
 
@@ -1032,23 +1201,49 @@ void vMultiPlayerGame(void *pvParameters){
     prevWakeTime = xLastWakeTime;
     const TickType_t updatePeriod = 5;
 
+    // bullet debounce
     TickType_t prevBulletTime = xLastWakeTime;
     TickType_t bulletPeriodDelay = BULLET_START_DELAY; 
+    // mysteryship debounce
+    TickType_t prevMysteryTime = xLastWakeTime;
+    unsigned int mysteryship_direction = LEFT;
+    // player shooting debounce
+    TickType_t prevShootTime = 0;
+    const TickType_t shootDebounceDelay = 100;
+    unsigned int prevButtonState = 0;
+
+    //LEVEL
+    unsigned int current_level = 1;
+    unsigned int starting_level = 1;
+    unsigned short initGame = 0;
+    unsigned short init_row = 1;
+    unsigned short init_col = 1;
+    unsigned short invaderInitDelay = 0;
+
 
     image_handle_t myship = tumDrawLoadImage("../resources/myship_small.bmp");
-    
+    image_handle_t mystery_ship = tumDrawLoadImage("../resources/mothership.bmp");
+
     image_handle_t invader1_0 = tumDrawLoadImage("../resources/invader1_1.bmp");
     image_handle_t invader1_1 = tumDrawLoadImage("../resources/invader1_2.bmp");
     image_handle_t invader2_0 = tumDrawLoadImage("../resources/invader2_1.bmp");
     image_handle_t invader2_1 = tumDrawLoadImage("../resources/invader2_2.bmp");
     image_handle_t invader3_0 = tumDrawLoadImage("../resources/invader3_1.bmp");
     image_handle_t invader3_1 = tumDrawLoadImage("../resources/invader3_2.bmp");
-   
-    int invaders_height = tumDrawGetLoadedImageHeight(invader1_0);
-    int invader1_width = tumDrawGetLoadedImageWidth(invader1_0);
-    int invader2_width = tumDrawGetLoadedImageWidth(invader2_0);
-    int invader3_width = tumDrawGetLoadedImageWidth(invader3_0);
+    
+    // TO-DO: should define this in constants if the images dont get loaded... or add if else statement
+    unsigned int myship_height = tumDrawGetLoadedImageHeight(myship);
+    unsigned int myship_width = tumDrawGetLoadedImageWidth(myship);
 
+    unsigned int mystery_ship_height = tumDrawGetLoadedImageHeight(mystery_ship);
+    unsigned int mystery_ship_width = tumDrawGetLoadedImageWidth(mystery_ship);
+
+    unsigned int invaders_height = tumDrawGetLoadedImageHeight(invader1_0); // all invaders have the same height
+    unsigned int invader1_width = tumDrawGetLoadedImageWidth(invader1_0);
+    unsigned int invader2_width = tumDrawGetLoadedImageWidth(invader2_0);
+    unsigned int invader3_width = tumDrawGetLoadedImageWidth(invader3_0);
+
+    //unsigned int mystery_ship_points = 100;
     unsigned int invader1_points = 10;
     unsigned int invader2_points = 20;
     unsigned int invader3_points = 30;
@@ -1066,10 +1261,10 @@ void vMultiPlayerGame(void *pvParameters){
     space_ship_t my_ship = { 0 };
     my_ship.ship_position = SCREEN_WIDTH / 2; // this is the position of the middle of the ship
     my_ship.ship =
-        createWall(SCREEN_WIDTH / 2 - tumDrawGetLoadedImageWidth(myship) / 2,
+        createWall(SCREEN_WIDTH / 2 - myship_width / 2,
                    MY_SHIP_Y_POSITION, 
-                   tumDrawGetLoadedImageWidth(myship), 
-                   tumDrawGetLoadedImageHeight(myship), 
+                   myship_width, 
+                   myship_height, 
                    0, White, NULL, NULL);
 
     // initialising invaders bullets
@@ -1083,12 +1278,28 @@ void vMultiPlayerGame(void *pvParameters){
     }
 
     // initialising individual enemys
+    enemy_t mysteryShip = { 0 };
+    //mysteryShip.points = &mystery_ship_points;
+    mysteryShip.height = &mystery_ship_height;
+    mysteryShip.width = &mystery_ship_width;
+    mysteryShip.enemy = createWall(SCREEN_WIDTH / 2 - mystery_ship_width / 2,
+                                MYSTERY_SHIP_POSITION_Y, 
+                                mystery_ship_width, 
+                                mystery_ship_height, 
+                                0, Red, NULL, NULL);
+
     enemy_t invader1 = { 0 };
     invader1.points = &invader1_points;
+    invader1.height = &invaders_height;
+    invader1.width = &invader1_width;
     enemy_t invader2 = { 0 };
     invader2.points = &invader2_points;
+    invader2.height = &invaders_height;
+    invader2.width = &invader2_width;
     enemy_t invader3 = { 0 };
     invader3.points = &invader3_points;
+    invader3.height = &invaders_height;
+    invader3.width = &invader3_width;
 
 
     // initialising all the invaders
@@ -1126,8 +1337,8 @@ void vMultiPlayerGame(void *pvParameters){
     // initialising all the bunkers
     bunker_t bunker[NUMBER_OF_BUNKERS] = { 0 };
     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
-        // 120 is distance from the left edge
-        bunker[nob].bunker_x_location = 150 + nob * DISTANCE_BETWEEN_BUNKERS - (BUNKER_WIDTH / 2) * BUNKER_BLOCK_LENGTH;
+        
+        bunker[nob].bunker_x_location = (1 + nob) * DISTANCE_BETWEEN_BUNKERS + nob * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH;
         bunker[nob].bunker_y_location = GROUND_POSITION - (BUNKER_HEIGHT * BUNKER_BLOCK_LENGTH) - 3 * MY_SHIP_HEIGHT; 
         // bunker clearance redefined in the future with inclusion of bunker height and player height
         for (int bw = 0; bw < BUNKER_WIDTH; bw++){
@@ -1166,26 +1377,45 @@ void vMultiPlayerGame(void *pvParameters){
                     }
                     else if (buttons.buttons[KEYCODE(R)]) {
                         xSemaphoreGive(buttons.lock);
-                        // reset player position, score and lives
+                        // reset player score and lives
                         resetPlayerData(&my_ship);
+                        // reset player position
+                        my_ship.ship_position = SCREEN_WIDTH / 2;
+                        setWallProperty(my_ship.ship, my_ship.ship_position - myship_width / 2, 0, 0, 0, SET_WALL_X);
+
                         // reset invaders position and data
                         invadersReset(&invaders, &invader1_width, &invaders_height);
+                        updateInvadersPosition(NULL, NULL, RESET);
+                        // reset mysteryship position
+                        mysteryshipReset(&mysteryShip, &mysteryship_direction);
+                        // reset all the bunkers
+                        for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
+                            bunkersReset(&bunker[nob]);
+                        }
+
                         // reset the position of all bullets
                         for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
-                            updateBulletPosition(invaders_bullets[b].bullet, RESET_BULLET);
+                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
-                        updateBulletPosition(my_bullet.bullet, RESET_BULLET);
+                        updateBulletPosition(&my_bullet, RESET_BULLET);
                         // reset the bullet debounce timers
                         bulletPeriodDelay = BULLET_START_DELAY;
                         prevBulletTime = xTaskGetTickCount();
+                        prevMysteryTime = prevBulletTime;
+
+                        current_level = starting_level;
+                        // INITIALISING SEQUENCE
+                        initGame = 1;
                     }
                     else{
                         xSemaphoreGive(buttons.lock);
                     }
                 }
-                if (!my_ship.lives || invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
+                // if the game ends go to gave over screen or advance to new level
+                if (!my_ship.lives || invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS) || initGame){
                     goto draw;
                 }
+
 
                 // checking players bullet collisions with invaders or bunkers
                 // make enemy dead and increment score by points amount if colision is detected               
@@ -1194,73 +1424,81 @@ void vMultiPlayerGame(void *pvParameters){
                 // checking for bunker colisions
                 for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
                     if (bulletHitBunker(&bunker[nob], my_bullet.bullet)){
-                        updateBulletPosition(my_bullet.bullet, RESET_BULLET);
+                        updateBulletPosition(&my_bullet, RESET_BULLET);
                     }
                 }
                 if (bulletHitInvader(&invaders, my_bullet.bullet, &my_ship.score)){
                     // if all invaders are killed delete all enemy bullets and players bullet
                     if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
-                        updateBulletPosition(my_bullet.bullet, RESET_BULLET);
+                        updateBulletPosition(&my_bullet, RESET_BULLET);
                         for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
-                            updateBulletPosition(invaders_bullets[b].bullet, RESET_BULLET);
+                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                         goto draw;
                     }else{
-                        updateBulletPosition(my_bullet.bullet, RESET_BULLET);
+                        updateBulletPosition(&my_bullet, RESET_BULLET);
                     }
-                }else if (my_bullet.bullet->y != 0){
-                    updateBulletPosition(my_bullet.bullet, xLastWakeTime - prevWakeTime);
+                }
+                else if (bulletHitMysteryship(&mysteryShip, my_bullet.bullet, &my_ship.score)){
+                    updateBulletPosition(&my_bullet, RESET_BULLET);
+                }
+                else if (my_bullet.bullet_state == ACTIVE){
+                    updateBulletPosition(&my_bullet, xLastWakeTime - prevWakeTime);
                 } 
 
 
-                // ***************************************************
-                // updates the position of invaders
-                // updateInvadersPosition(&invaders, &my_ship.lives);
-                // ***************************************************
 
-                // checking for bullet collisions with of invaders with the bunker or player
-                
+
+
+                // checking for bullet collisions of invader bullets with the bunker or player
                 // checking for bunker collisions
-
 
                 for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
                     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
                         if (bulletHitBunker(&bunker[nob], invaders_bullets[b].bullet)){
-                            updateBulletPosition(invaders_bullets[b].bullet, RESET_BULLET);
+                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                     }
                     if(bulletHitPlayer(&my_ship, invaders_bullets[b].bullet)){
                         // reset all the bullets if colision with player is detected
                         for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
-                            updateBulletPosition(invaders_bullets[b].bullet, RESET_BULLET);
+                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                         // decrement one life, reset position and make involnurable to bullets for a few moments
                         my_ship.lives--;
                         my_ship.ship_position = SCREEN_WIDTH / 2;
                         break;
                     }
-                    else if (invaders_bullets[b].bullet->y != 0){
-                        updateBulletPosition(invaders_bullets[b].bullet, xLastWakeTime - prevWakeTime);
+                    else if (invaders_bullets[b].bullet_state == ACTIVE){
+                        updateBulletPosition(&invaders_bullets[b], xLastWakeTime - prevWakeTime);
                     }
                 }
 
 
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
-                    if (buttons.buttons[KEYCODE(SPACE)]) {
+                    if (prevButtonState != buttons.buttons[KEYCODE(SPACE)]) {
+                        if (prevButtonState < buttons.buttons[KEYCODE(SPACE)]){
+                            if (xTaskGetTickCount() - prevShootTime > shootDebounceDelay){
+                                if (my_bullet.bullet->dy == 0) {
+                                    my_bullet.bullet = shootBulletPlayer(my_bullet.bullet, my_ship.ship_position);
+                                    my_bullet.bullet_state = ACTIVE;
+                                    prevShootTime = xTaskGetTickCount();
+                                }
+                            }
+                        }
+                        prevButtonState = buttons.buttons[KEYCODE(SPACE)];
                         xSemaphoreGive(buttons.lock);
-                        if (my_bullet.bullet->dy == 0) {
-                            my_bullet.bullet = shootBulletPlayer(my_bullet.bullet, my_ship.ship_position);
-                        }          
                     }
                     xSemaphoreGive(buttons.lock);
-                
                 }
+            
                 
                 // shooting bullet every time period bulletPeriodDelay
                 if (xTaskGetTickCount() - prevBulletTime > bulletPeriodDelay){
                     for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
                         if (invaders_bullets[b].bullet->dy == 0){
                             invaders_bullets[b].bullet = shootBulletInvaders(invaders_bullets[b].bullet, &invaders);
+                            invaders_bullets[b].bullet_state = ACTIVE;
                             //bullet is created with random time intervals that are smaller than BULLET_START_DELAY (in ms)
                             //this is like a debounce timer but with a random delay period
                             prevBulletTime = xTaskGetTickCount();
@@ -1271,20 +1509,50 @@ void vMultiPlayerGame(void *pvParameters){
                     }
                 }
 
+
+                // UPDATE PLAYER POSITION
                 // checks player input to change its position accordingly
-                xCheckPlayerInput(&my_ship.ship_position, tumDrawGetLoadedImageWidth(myship));
+                xCheckPlayerInput(&my_ship.ship_position, myship_width);
                 // updates the position of players spaceship
 
-                // YOU NEED TO UPDATE THIS... 
-                my_ship.ship->x1 = my_ship.ship_position - tumDrawGetLoadedImageWidth(myship) / 2;
-                my_ship.ship->x2 = my_ship.ship->x1 + tumDrawGetLoadedImageWidth(myship);
-
-                // SPEED OF THE BULLET...ONE INCREMENTATION OF ALL ALIENS LVL 1 BULLET GOES ACROSS THE SCREEN
-                // WE ALSO NEED TO RESET THE BULLET IF IT HITS AN INVADER
-                // destroy bullet object if out of bounds or move its
+                // TO-DO: YOU NEED TO UPDATE THIS somehow put it in a function or something 
+                setWallProperty(my_ship.ship, my_ship.ship_position - myship_width / 2, 0, 0, 0, SET_WALL_X);
 
 
-                
+                // ***************************************************
+                // UPDATE INVADERS POSITION
+                for(int i = 0; i < current_level; i++){
+                    updateInvadersPosition(&invaders, &my_ship.lives, 0);
+                }
+                // ***************************************************
+
+
+
+
+
+                // UPDATE MYSTERYSHIP POSITION
+                // mysteryship flies by every 20 seconds alternating in direction it comes from
+                if (xTaskGetTickCount() - prevMysteryTime > MYSTERY_SHIP_PERIOD){
+                    mysteryship_direction = !mysteryship_direction;
+                    if (mysteryship_direction == RIGHT){
+                        setWallProperty(mysteryShip.enemy, -mystery_ship_width, 0, 0, 0, SET_WALL_X);
+                        mysteryShip.dead = ALIVE;
+                        prevMysteryTime = xTaskGetTickCount();
+                    }
+                    else if (mysteryship_direction == LEFT){
+                        setWallProperty(mysteryShip.enemy, SCREEN_WIDTH, 0, 0, 0, SET_WALL_X);
+                        mysteryShip.dead = ALIVE;
+                        prevMysteryTime = xTaskGetTickCount();
+                    }
+                }
+                if (mysteryShip.dead == ALIVE){
+                    updateMysteryshipPosition(&mysteryShip, &mysteryship_direction);
+                }
+
+
+                //PLUS ONE EXTRA LIFE EVERY 1000 SCORE / POINTS
+                vExtraLives(&my_ship.lives, &my_ship.score);
+               
                 /*
                 
                 they need a value for speed (how often they increment / how short the delay of incrementing is)
@@ -1297,22 +1565,12 @@ void vMultiPlayerGame(void *pvParameters){
 
                 at the beginning the images are loaded one by one from the bottom up (same as incrementation)
 
-
-                NEED A COLISION WITH BULLET DETECTION -> delete the image and hit detection etc, increment score, explosion
-                still need an explosion image
                 */
 
                 /*
                 if you win the game or if you lose a game you need to send the score to the score task where it will be stored
                 ---how do we create a file where our programm reads from... for the scores for the next time we start the app
-                */
-                
-                /*
-                updateBulletPosition(
-                    enemy_bullet, xLastWakeTime - prevWakeTime);
-                // check for collision with an invader, also award points for hit
-
-                */            
+                */        
                     
 
 
@@ -1322,87 +1580,278 @@ draw:
                 if (xSemaphoreTake(ScreenLock, portMAX_DELAY) == pdTRUE) {
                     
                     tumDrawClear(Black);
+
                     if (!my_ship.lives) {
                         vDrawGameOver();
+                    }else if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
+                        vDrawNextLevel();
+                        if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
+                            if (prevButtonState != buttons.buttons[KEYCODE(SPACE)]) {
+                                if (prevButtonState < buttons.buttons[KEYCODE(SPACE)]){
+                                    if (xTaskGetTickCount() - prevShootTime > shootDebounceDelay){
+                                        // reset player position
+                                        my_ship.ship_position = SCREEN_WIDTH / 2;
+                                        my_ship.ship->x1 = my_ship.ship_position - myship_width / 2;
+                                        my_ship.ship->x2 = my_ship.ship->x1 + myship_width;
+                                        
+                                        // reset invaders position and data
+                                        invadersReset(&invaders, &invader1_width, &invaders_height);
+                                        updateInvadersPosition(NULL, NULL, RESET);
+                                        // reset mysteryship position
+                                        mysteryshipReset(&mysteryShip, &mysteryship_direction);
+                                        // reset all the bunkers
+                                        for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
+                                            bunkersReset(&bunker[nob]);
+                                        }
+
+                                        // reset the position of all bullets
+                                        for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
+                                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
+                                        }
+                                        updateBulletPosition(&my_bullet, RESET_BULLET);
+                                        // reset the bullet debounce timers
+                                        bulletPeriodDelay = BULLET_START_DELAY;
+                                        prevBulletTime = xTaskGetTickCount();
+                                        prevMysteryTime = prevBulletTime;
+                                        
+                                        current_level++;
+                                        // INITIALISING SEQUENCE
+                                        initGame = 1;
+                                        prevShootTime = xTaskGetTickCount();
+                                        
+                                    }
+                                }
+                                prevButtonState = buttons.buttons[KEYCODE(SPACE)];
+                                xSemaphoreGive(buttons.lock);
+                            }
+                            xSemaphoreGive(buttons.lock);
+                        }
                     }else{
                         vDrawFPS();
                         vDrawHelpText();
                         vDrawScore(&my_ship.score);
-                        vDrawLives(&my_ship.lives, myship);
+                        vDrawLevel(&current_level);
+                        vDrawLives(&my_ship.lives, myship, &my_ship);
                         //vDrawHUD
 
-
-                        // draw my spaceship
-                        if (myship) {
-                            tumDrawLoadedImage(myship,
-                                               my_ship.ship->x1,
-                                               //tumDrawGetLoadedImageWidth(myship) / 2,
-                                               my_ship.ship->y1
-                                               //tumDrawGetLoadedImageHeight(myship) / 2);
-                                               );
-                            tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
-                        
-                        }
-                        /*
-                        tumDrawFilledBox(my_ship.ship->x1, my_ship.ship->y1, 
-                                         my_ship.ship->w, my_ship.ship->h, Green);
-                        */
-                        
                         // draw bullets
-                        if (my_bullet.bullet->dy != 0){
+                        if (my_bullet.bullet_state == ACTIVE){
                             tumDrawCircle(my_bullet.bullet->x, my_bullet.bullet->y,
                                              my_bullet.bullet->radius, White);
                         }
                         for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
-                            if (invaders_bullets[b].bullet->dy != 0){
+                            if (invaders_bullets[b].bullet_state == ACTIVE){
                                 tumDrawCircle(invaders_bullets[b].bullet->x, invaders_bullets[b].bullet->y,
                                               invaders_bullets[b].bullet->radius, Aqua);
                             }
                         }
 
-                        // draw invaders
-                        for (int row = 0; row < ENEMY_ROWS; row++){
-                            for (int col = 0; col < ENEMY_COLUMNS; col++){
-                                if (!invaders.enemys[row][col].dead){
-                                    // alternating between images based if the X pixel coordinate is even or odd
-                                    if (!invaders.enemys[row][col].image_state){
-        
-                                        /*tumDrawFilledBox(invaders.enemys[row][col].enemy->x1, 
-                                                         invaders.enemys[row][col].enemy->y1, 
-                                                         invaders.enemys[row][col].enemy->w, 
-                                                         invaders.enemys[row][col].enemy->h, 
-                                                         White);
-                                        */
-                                        if (row == 0 || row == 1){
-                                            tumDrawLoadedImage(invader1_0,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
-                                        }else if (row == 2 || row == 3){
-                                            tumDrawLoadedImage(invader2_0,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
-                                        }else if (row == 4){
-                                            tumDrawLoadedImage(invader3_0,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
+
+                        
+
+
+                        if (initGame){
+                            if (invaderInitDelay == 0){
+                                // draw invaders one by one
+
+                                for (int row = 0; row < init_row; row++){
+                                    if (row == (init_row - 1)){
+                                        // draw invaders one by one in new row
+                                        for (int col = 0; col < init_col; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
                                         }
-                                    }else if (invaders.enemys[row][col].image_state){
-                                        if (row == 0 || row == 1){
-                                            tumDrawLoadedImage(invader1_1,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
-                                        }else if (row == 2 || row == 3){
-                                            tumDrawLoadedImage(invader2_1,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
-                                        }else if (row == 4){
-                                            tumDrawLoadedImage(invader3_1,
-                                                               invaders.enemys[row][col].enemy->x1, 
-                                                               invaders.enemys[row][col].enemy->y1);
+
+                                    }else{
+                                        // draw all the invaders of the previous rows
+                                        for (int col = 0; col < ENEMY_COLUMNS; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
                                         }
-                                    }    
+                                    }
+                                }
+                                // after initializing process is done set initGame to zero
+                                if (init_row == ENEMY_ROWS && init_col == ENEMY_COLUMNS){
+                                    initGame = 0;
+                                    init_row = 1;
+                                    init_col = 1;
+                                }
+                                // after one row is drawn move to the next row of invaders
+                                if (init_col == ENEMY_COLUMNS){
+                                    init_row++;
+                                    init_col = 1;
+                                }else{
+                                    init_col++;
+                                }
+                                invaderInitDelay++;
+                            }
+                            else if (invaderInitDelay < 8){
+
+                                for (int row = 0; row < init_row; row++){
+                                    if (row == (init_row - 1)){
+                                        // draw invaders one by one in new row
+                                        for (int col = 0; col < init_col; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
+                                        }
+
+                                    }else{
+                                        // draw all the invaders of the previous rows
+                                        for (int col = 0; col < ENEMY_COLUMNS; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
+                                        }
+                                    }
+                                }
+                                invaderInitDelay++;
+                            }
+                            else{
+                                for (int row = 0; row < init_row; row++){
+                                    if (row == (init_row - 1)){
+                                        // draw invaders one by one in new row
+                                        for (int col = 0; col < init_col; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
+                                        }
+
+                                    }else{
+                                        // draw all the invaders of the previous rows
+                                        for (int col = 0; col < ENEMY_COLUMNS; col++){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            } 
+                                        }
+                                    }
+                                }
+                                invaderInitDelay = 0;
+                            }
+                        }
+                        else{                     
+                            // draw invaders
+                            for (int row = 0; row < ENEMY_ROWS; row++){
+                                for (int col = 0; col < ENEMY_COLUMNS; col++){
+                                    if (!invaders.enemys[row][col].dead){
+                                        // alternating between images based if the X pixel coordinate is even or odd
+                                        if (!invaders.enemys[row][col].image_state){
+            
+                                            /*tumDrawFilledBox(invaders.enemys[row][col].enemy->x1, 
+                                                             invaders.enemys[row][col].enemy->y1, 
+                                                             invaders.enemys[row][col].enemy->w, 
+                                                             invaders.enemys[row][col].enemy->h, 
+                                                             White);
+                                            */
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_0,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }
+
+                                        }else if (invaders.enemys[row][col].image_state){
+                                            if (row == 0 || row == 1){
+                                                tumDrawLoadedImage(invader1_1,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 2 || row == 3){
+                                                tumDrawLoadedImage(invader2_1,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }else if (row == 4){
+                                                tumDrawLoadedImage(invader3_1,
+                                                                   invaders.enemys[row][col].enemy->x1, 
+                                                                   invaders.enemys[row][col].enemy->y1);
+                                            }
+                                        }    
+                                    }
                                 }
                             }
+                        }
+
+                        // draw my spaceship and the ground
+                        if (myship) {
+                            tumDrawLoadedImage(myship,
+                                               my_ship.ship->x1,
+                                               my_ship.ship->y1);
+
+                            tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
+                        
+                        }else{
+                            tumDrawFilledBox(my_ship.ship->x1, my_ship.ship->y1, 
+                                             my_ship.ship->w, my_ship.ship->h, Green);
+
+                            tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
                         }
 
                         // draw bunkers
@@ -1420,6 +1869,18 @@ draw:
                                 }
                             }
                         }
+
+                        // draw mystery ship
+                        if(!mysteryShip.dead){
+                            if (mystery_ship) {
+                                tumDrawLoadedImage(mystery_ship,
+                                                   mysteryShip.enemy->x1,
+                                                   mysteryShip.enemy->y1);
+                            }else{
+                                tumDrawFilledBox(mysteryShip.enemy->x1, mysteryShip.enemy->y1, 
+                                                 mysteryShip.enemy->w, mysteryShip.enemy->h, Red);
+                            }
+                        }
                     }
                 }
                 xSemaphoreGive(ScreenLock);
@@ -1430,10 +1891,12 @@ draw:
                 // can be updated appropriatley
                 prevWakeTime = xLastWakeTime;
                 vTaskDelayUntil(&xLastWakeTime, updatePeriod);
+                
             }
         }
     }
 }
+
 
 int gamesInit(void)
 {

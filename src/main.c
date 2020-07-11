@@ -59,7 +59,7 @@ void checkDraw(unsigned char status, const char *msg)
     }
 }
 
-#define FPS_AVERAGE_COUNT 50
+#define FPS_AVERAGE_COUNT 100
 #define FPS_FONT "IBMPlexSans-Bold.ttf"
 
 void vDrawFPS(void)
@@ -244,7 +244,7 @@ void vSwapBuffers(void *pvParameters)
 {
     TickType_t xLastWakeTime;
     xLastWakeTime = xTaskGetTickCount();
-    const TickType_t frameratePeriod = 5;
+    const TickType_t frameratePeriod = 10;
 
     tumDrawBindThread(); // Setup Rendering handle with correct GL context
 
