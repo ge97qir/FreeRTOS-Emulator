@@ -42,7 +42,7 @@
 // GAME PROPERTIES
 //#define MAX_LEVEL 3
 #define RESET 1
-
+#define EXPLOSION_DELAY 25  // the delay when an enemy or player gets hit by a bullet and explosion happens
 // SPACE SHIP DIMENSIONS
 #define MY_SHIP_WIDTH 52
 #define MY_SHIP_HEIGHT 30
@@ -50,7 +50,6 @@
 
 // adjusted for invaders just before inasion so they are just above ground
 #define GROUND_POSITION (SCREEN_HEIGHT - 2 * MY_SHIP_HEIGHT - 10)
-
 #define MY_SHIP_Y_POSITION (GROUND_POSITION - MY_SHIP_HEIGHT - 3)
 
 // BULLET PROPERTIES
@@ -82,12 +81,12 @@
 
 // BUNKER PROPERTIES
 #define NUMBER_OF_BUNKERS 4
-
 #define BUNKER_WIDTH 8 // these units are in blocks 
 #define BUNKER_HEIGHT 6 
 // individual bunker block is a square
 #define BUNKER_BLOCK_LENGTH 13 // unit in pixels
 #define DISTANCE_BETWEEN_BUNKERS (SCREEN_WIDTH - NUMBER_OF_BUNKERS * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH) / (NUMBER_OF_BUNKERS + 1)
+#define BUNKER_LOCATION_Y GROUND_POSITION - (BUNKER_HEIGHT * BUNKER_BLOCK_LENGTH) - 3 * MY_SHIP_HEIGHT
 //#define BUNKER_CLEARANCE 100 // distance from the ground to the bunker top
 
 // MYSTERY SHIP
@@ -117,6 +116,8 @@ static QueueHandle_t RightScoreQueue = NULL;
 static QueueHandle_t StartDirectionQueue = NULL;
 static QueueHandle_t BallYQueue = NULL;
 static QueueHandle_t PaddleYQueue = NULL;
+
+static QueueHandle_t killedInvaderQueue = NULL;
 
 static SemaphoreHandle_t ResetRightPaddle = NULL;
 static SemaphoreHandle_t ResetLeftPaddle = NULL;
@@ -220,7 +221,7 @@ void vDrawHelpText(void)
     if (!tumGetTextSize((char *)str, &text_width, NULL))
         tumDrawText(str,
                     SCREEN_WIDTH - text_width - DEFAULT_FONT_SIZE * 2.5,
-                    DEFAULT_FONT_SIZE * 2.5, White);
+                    DEFAULT_FONT_SIZE * 1.5, White);
 
     tumFontSetSize(prev_font_size);
 }
@@ -632,7 +633,7 @@ typedef struct player_info {
     wall_t *ship;
     signed int ship_position;
     unsigned short lives;
-    unsigned int score;
+    unsigned short score;
 } space_ship_t;
 
 typedef struct bullet_data {
@@ -643,7 +644,7 @@ typedef struct bullet_data {
 
 typedef struct invader_unit_data {
     wall_t *enemy;
-    unsigned int *points; // how much is the enemy worth
+    unsigned short *points; // how much is the enemy worth
     unsigned short dead; // alive or dead so we know if we need to draw it and detect colisions
     unsigned short image_state; // alternating between images
     unsigned int *width;
@@ -746,35 +747,42 @@ void vDrawGameOver(void){
     tumFontSetSize(prev_font_size);   
 }
 
-void vDrawLevel(unsigned int *level){
+void vDrawLevel(unsigned short *level){
     static char str[100] = { 0 };
-    static int text_width;
     ssize_t prev_font_size = tumFontGetCurFontSize();
 
     tumFontSetSize((ssize_t)20);
 
-    sprintf(str, "Level: %u", *level);
+    sprintf(str, "Level: %hu", *level);
 
-    if (!tumGetTextSize((char *)str, &text_width, NULL))
+    if (!tumGetTextSize((char *)str, NULL, NULL))
         tumDrawText(str,
-                    150,
+                    14 * DEFAULT_FONT_SIZE * 1.5,
                     DEFAULT_FONT_SIZE * 1.5, White);
 
     tumFontSetSize(prev_font_size);
 }
 
-void vDrawScore(unsigned int *score){
-    static char str[100] = { 0 };
-    static int text_width;
+void vDrawScore(unsigned short *score, unsigned short *highscore){
+    static char str1[100] = { 0 };
+    static char str2[100] = { 0 };
+    static int text_width1;
+    static int text_width2;
     ssize_t prev_font_size = tumFontGetCurFontSize();
 
     tumFontSetSize((ssize_t)20);
 
-    sprintf(str, "Score: %u", *score);
+    sprintf(str1, "Current score: %hu", *score);
+    sprintf(str2, "Highscore: %hu", *highscore);
 
-    if (!tumGetTextSize((char *)str, &text_width, NULL))
-        tumDrawText(str,
+    if (!tumGetTextSize((char *)str1, &text_width1, NULL))
+        tumDrawText(str1,
                     DEFAULT_FONT_SIZE * 1.5,
+                    DEFAULT_FONT_SIZE * 1.5, White);
+
+    if (!tumGetTextSize((char *)str2, &text_width2, NULL))
+        tumDrawText(str2,
+                    8 * DEFAULT_FONT_SIZE * 1.5,
                     DEFAULT_FONT_SIZE * 1.5, White);
 
     tumFontSetSize(prev_font_size);
@@ -835,8 +843,8 @@ void vDecrement(signed int *position, int obj_width, int speed){
     }
 }
 
-void vExtraLives(unsigned short *lives, unsigned int *score){
-    static unsigned int extra_lives= 0;
+void vExtraLives(unsigned short *lives, unsigned short *score){
+    static unsigned short extra_lives= 0;
     if (*score == 0){
         extra_lives = 0;
     }
@@ -1052,23 +1060,18 @@ end_loop:
     }
 }
 
-// TO-DO: make hit detection universal with casting or accepting wall_t
-
-unsigned int bulletHitMysteryship(enemy_t *mysteryship, ball_t *bullet, unsigned int *player_score){
-    if (!mysteryship->dead){
-        // checking if the bullet is coliding with a specific invader
-        if (bullet->x >= mysteryship->enemy->x1 + 5 && 
-            bullet->x <= mysteryship->enemy->x2 - 5 &&
-            bullet->y >= mysteryship->enemy->y1 &&
-            bullet->y <= mysteryship->enemy->y2 - 15){
-            
-            mysteryship->dead = DEAD; // set the state to dead
-            //*player_score += *mysteryship->points;
-            *player_score += abs(rand() % 301); // mystery ship is worth random amount of points (max 300)
-            return 1;
+unsigned int invaderHitBunker(invaders_t *invaders){
+    for (int row = 0; row < ENEMY_ROWS; row++){
+        for (int col = 0; col < ENEMY_COLUMNS; col++){
+            if (!invaders->enemys[row][col].dead){
+                // checking if the bullet is coliding with a specific invader
+                if (invaders->enemys[row][col].enemy->y2 > BUNKER_LOCATION_Y){
+                    return 1;
+                }
+            }
         }
     }
-    return 0; // no collisions detected
+    return 0; // no collisions detected    
 }
 
 // TO-DO: hit animation and sound
@@ -1093,8 +1096,27 @@ unsigned int bulletHitBunker(bunker_t *bunker, ball_t *bullet){
     return 0; // no collisions detected
 }
 
+// TO-DO: make hit detection universal with casting or accepting wall_t
+
+unsigned int bulletHitMysteryship(enemy_t *mysteryship, ball_t *bullet, unsigned short *player_score){
+    if (!mysteryship->dead){
+        // checking if the bullet is coliding with a specific invader
+        if (bullet->x >= mysteryship->enemy->x1 + 5 && 
+            bullet->x <= mysteryship->enemy->x2 - 5 &&
+            bullet->y >= mysteryship->enemy->y1 &&
+            bullet->y <= mysteryship->enemy->y2 - 15){
+            
+            mysteryship->dead = DEAD; // set the state to dead
+            //*player_score += *mysteryship->points;
+            *player_score += abs(rand() % 301); // mystery ship is worth random amount of points (max 300)
+            return 1;
+        }
+    }
+    return 0; // no collisions detected
+}
+
 // TO-DO: hit animation and sound
-unsigned int bulletHitInvader(invaders_t *invaders, ball_t *bullet, unsigned int *player_score){
+unsigned int bulletHitInvader(invaders_t *invaders, ball_t *bullet, unsigned short *player_score){
     // if bulet betweeen x1 and x2 and y1 and y2 make the invader dead 
     // and increment score by points amount
     for (int row = 0; row < ENEMY_ROWS; row++){
@@ -1108,6 +1130,11 @@ unsigned int bulletHitInvader(invaders_t *invaders, ball_t *bullet, unsigned int
                     invaders->enemys[row][col].dead = DEAD; // set the state to dead
                     invaders->killed_invaders++;
                     *player_score += *invaders->enemys[row][col].points;
+
+                    xQueueReset(killedInvaderQueue);
+                    xQueueSend(killedInvaderQueue, &row, portMAX_DELAY);
+                    xQueueSend(killedInvaderQueue, &col, portMAX_DELAY);
+
                     return 1;
                 }
             }
@@ -1134,8 +1161,8 @@ unsigned int bulletHitPlayer(space_ship_t *player, ball_t *bullet){
     return 0; // no collisions detected
 }
 
-void resetPlayerData (space_ship_t *player){
-    player->score = 0;
+void resetPlayerData (space_ship_t *player, unsigned short *resetScore){
+    player->score = *resetScore;
     player->lives = 3;
 }
 
@@ -1212,14 +1239,47 @@ void vMultiPlayerGame(void *pvParameters){
     const TickType_t shootDebounceDelay = 100;
     unsigned int prevButtonState = 0;
 
-    //LEVEL
-    unsigned int current_level = 1;
-    unsigned int starting_level = 1;
+    // CHEATS VARIABLES
+    unsigned short infinite_lives = 0;
+    unsigned short resetScore = 0;
+    unsigned short starting_level = 1;
+
+    // LEVEL
+    // TO-DO: add predefined constants here
+    unsigned short current_level = 1;
     unsigned short initGame = 0;
     unsigned short init_row = 1;
     unsigned short init_col = 1;
     unsigned short invaderInitDelay = 0;
 
+    // read HIGHSCORE from a file
+    FILE *fp = NULL;
+    unsigned short highscore;
+    char* highscore_file = "../resources/highscore.txt";
+
+    // loading sounds
+    tumSoundLoadUserSample("../resources/mystery_ship.wav"); 
+    tumSoundLoadUserSample("../resources/player_shoot.wav");
+    tumSoundLoadUserSample("../resources/player_explosion.wav"); 
+    tumSoundLoadUserSample("../resources/invader_explosion.wav"); 
+    // buffer so the sound is not repeatedly played from beginning but plays only once it has finished playing
+    unsigned short bufferSound = 0;
+    // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
+    unsigned short bufferExplosion = 0;
+
+    // flags if the player or any enemy have been killed
+    unsigned short player_killed = 0;
+    unsigned short invader_killed = 0;
+    unsigned short mystery_killed = 0;
+    // variables where the killed invader coordinates are received
+    int killedInvaderRow;
+    int killedInvaderCol;
+
+
+    // load all the images
+    image_handle_t player_explosion = tumDrawLoadImage("../resources/player_explosion.png");
+    image_handle_t invader_explosion = tumDrawLoadImage("../resources/invader_explosion.png");
+    unsigned int invader_explosion_width = tumDrawGetLoadedImageWidth(invader_explosion);
 
     image_handle_t myship = tumDrawLoadImage("../resources/myship_small.bmp");
     image_handle_t mystery_ship = tumDrawLoadImage("../resources/mothership.bmp");
@@ -1244,9 +1304,9 @@ void vMultiPlayerGame(void *pvParameters){
     unsigned int invader3_width = tumDrawGetLoadedImageWidth(invader3_0);
 
     //unsigned int mystery_ship_points = 100;
-    unsigned int invader1_points = 10;
-    unsigned int invader2_points = 20;
-    unsigned int invader3_points = 30;
+    unsigned short invader1_points = 10;
+    unsigned short invader2_points = 20;
+    unsigned short invader3_points = 30;
 
     // initialising my bullet
     bullet_t my_bullet = { 0 };
@@ -1339,7 +1399,7 @@ void vMultiPlayerGame(void *pvParameters){
     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
         
         bunker[nob].bunker_x_location = (1 + nob) * DISTANCE_BETWEEN_BUNKERS + nob * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH;
-        bunker[nob].bunker_y_location = GROUND_POSITION - (BUNKER_HEIGHT * BUNKER_BLOCK_LENGTH) - 3 * MY_SHIP_HEIGHT; 
+        bunker[nob].bunker_y_location = BUNKER_LOCATION_Y; 
         // bunker clearance redefined in the future with inclusion of bunker height and player height
         for (int bw = 0; bw < BUNKER_WIDTH; bw++){
             for (int bh = 0; bh < BUNKER_HEIGHT; bh++){
@@ -1377,8 +1437,13 @@ void vMultiPlayerGame(void *pvParameters){
                     }
                     else if (buttons.buttons[KEYCODE(R)]) {
                         xSemaphoreGive(buttons.lock);
+                        // Receiving all the cheats to initialize the game accordingly
+                        xQueueReceive(livesQueue, &infinite_lives, 0);
+                        xQueueReceive(levelQueue, &starting_level, 0);
+                        xQueueReceive(scoreQueue, &resetScore, 0);
+
                         // reset player score and lives
-                        resetPlayerData(&my_ship);
+                        resetPlayerData(&my_ship, &resetScore);
                         // reset player position
                         my_ship.ship_position = SCREEN_WIDTH / 2;
                         setWallProperty(my_ship.ship, my_ship.ship_position - myship_width / 2, 0, 0, 0, SET_WALL_X);
@@ -1406,14 +1471,42 @@ void vMultiPlayerGame(void *pvParameters){
                         current_level = starting_level;
                         // INITIALISING SEQUENCE
                         initGame = 1;
+
+                        fp = fopen(highscore_file, "r");
+                        if (fp != NULL){
+                            highscore = getw(fp);
+                        }else{
+                            highscore = 0;
+                        }
+                        fclose(fp);
+                        
+                        player_killed = 0;
+                        invader_killed = 0;
+                        mystery_killed = 0;
+
                     }
                     else{
                         xSemaphoreGive(buttons.lock);
                     }
                 }
                 // if the game ends go to gave over screen or advance to new level
-                if (!my_ship.lives || invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS) || initGame){
+                if (!my_ship.lives || invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS) || initGame 
+                    || player_killed || invader_killed || mystery_killed){
                     goto draw;
+                }
+
+
+                // checking if alive invaders are already at the bunkers 
+                // if so the invaders destroy the bunkers
+                if (invaderHitBunker(&invaders)){
+                    //destroy all the bunkers
+                    for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
+                        for (int bh = 0; bh < BUNKER_HEIGHT; bh++){
+                            for (int bw = 0; bw < BUNKER_WIDTH; bw++){
+                                bunker[nob].bunker[bh][bw].dead = DEAD;
+                            }
+                        }
+                    }
                 }
 
 
@@ -1428,25 +1521,25 @@ void vMultiPlayerGame(void *pvParameters){
                     }
                 }
                 if (bulletHitInvader(&invaders, my_bullet.bullet, &my_ship.score)){
-                    // if all invaders are killed delete all enemy bullets and players bullet
+                    invader_killed = 1;
+                    tumSoundPlayUserSample("invader_explosion.wav");
+                    updateBulletPosition(&my_bullet, RESET_BULLET);      
+                    // if all invaders are killed delete all enemy bullets and players bullet             
                     if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
-                        updateBulletPosition(&my_bullet, RESET_BULLET);
                         for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
                             updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                         goto draw;
-                    }else{
-                        updateBulletPosition(&my_bullet, RESET_BULLET);
                     }
                 }
                 else if (bulletHitMysteryship(&mysteryShip, my_bullet.bullet, &my_ship.score)){
+                    mystery_killed = 1;
+                    tumSoundPlayUserSample("invader_explosion.wav");
                     updateBulletPosition(&my_bullet, RESET_BULLET);
                 }
                 else if (my_bullet.bullet_state == ACTIVE){
                     updateBulletPosition(&my_bullet, xLastWakeTime - prevWakeTime);
                 } 
-
-
 
 
 
@@ -1459,15 +1552,20 @@ void vMultiPlayerGame(void *pvParameters){
                             updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                     }
+                    // CONDIITON IF INFINITE LIVES CHEAT IS ACTIVATED
+
+
                     if(bulletHitPlayer(&my_ship, invaders_bullets[b].bullet)){
-                        // reset all the bullets if colision with player is detected
-                        for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
-                            updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
-                        }
-                        // decrement one life, reset position and make involnurable to bullets for a few moments
-                        my_ship.lives--;
-                        my_ship.ship_position = SCREEN_WIDTH / 2;
-                        break;
+                            // reset all the bullets if colision with player is detected
+                            if(!infinite_lives) {
+                                for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
+                                    updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
+                                }
+                                tumSoundPlayUserSample("player_explosion.wav");
+                                player_killed = 1;
+                                // decrement one life, reset position and make involnurable to bullets for a few moments
+                                break;
+                            }
                     }
                     else if (invaders_bullets[b].bullet_state == ACTIVE){
                         updateBulletPosition(&invaders_bullets[b], xLastWakeTime - prevWakeTime);
@@ -1483,11 +1581,11 @@ void vMultiPlayerGame(void *pvParameters){
                                     my_bullet.bullet = shootBulletPlayer(my_bullet.bullet, my_ship.ship_position);
                                     my_bullet.bullet_state = ACTIVE;
                                     prevShootTime = xTaskGetTickCount();
+                                    tumSoundPlayUserSample("player_shoot.wav");
                                 }
                             }
                         }
                         prevButtonState = buttons.buttons[KEYCODE(SPACE)];
-                        xSemaphoreGive(buttons.lock);
                     }
                     xSemaphoreGive(buttons.lock);
                 }
@@ -1582,6 +1680,19 @@ draw:
                     tumDrawClear(Black);
 
                     if (!my_ship.lives) {
+                        // checks if the player achieved a highscore and updates it
+                        if (my_ship.score > highscore){
+                            highscore = my_ship.score;
+                            // opens a highscore file and edits it
+                            fp = fopen(highscore_file, "w");
+                            if (fp != NULL){
+                                putw(highscore, fp);
+                            }
+                            fclose(fp);
+                        }
+
+  
+
                         vDrawGameOver();
                     }else if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
                         vDrawNextLevel();
@@ -1618,6 +1729,10 @@ draw:
                                         // INITIALISING SEQUENCE
                                         initGame = 1;
                                         prevShootTime = xTaskGetTickCount();
+
+                                        player_killed = 0;
+                                        invader_killed = 0;
+                                        mystery_killed = 0;
                                         
                                     }
                                 }
@@ -1629,9 +1744,11 @@ draw:
                     }else{
                         vDrawFPS();
                         vDrawHelpText();
-                        vDrawScore(&my_ship.score);
+                        vDrawScore(&my_ship.score, &highscore);
                         vDrawLevel(&current_level);
                         vDrawLives(&my_ship.lives, myship, &my_ship);
+                        // draws the ground
+                        tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
                         //vDrawHUD
 
                         // draw bullets
@@ -1837,21 +1954,68 @@ draw:
                                     }
                                 }
                             }
+
+                            if (invader_killed){
+                                xQueueReceive(killedInvaderQueue, &killedInvaderRow, 0);
+                                xQueueReceive(killedInvaderQueue, &killedInvaderCol, 0);
+                                if (killedInvaderRow == 0 || killedInvaderRow == 1){
+                                    tumDrawLoadedImage(invader_explosion,
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->x1
+                                                       - (invader_explosion_width - invader1_width) / 2, 
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->y1);
+                                }else if (killedInvaderRow == 2 || killedInvaderRow == 3){
+                                    tumDrawLoadedImage(invader_explosion,
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->x1
+                                                       - (invader_explosion_width - invader2_width) / 2, 
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->y1);
+                                }else if (killedInvaderRow == 4){
+                                    tumDrawLoadedImage(invader_explosion,
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->x1 
+                                                       - (invader_explosion_width - invader3_width) / 2,
+                                                       invaders.enemys[killedInvaderRow][killedInvaderCol].enemy->y1);
+                                }
+
+                                if (bufferExplosion == EXPLOSION_DELAY){
+                                    invader_killed = 0;
+                                    bufferExplosion = 0;
+                                }
+                                else{
+                                    bufferExplosion++;
+                                }
+
+                            }
+
+                            // draw an explosion of a recently killed invader
                         }
 
                         // draw my spaceship and the ground
-                        if (myship) {
-                            tumDrawLoadedImage(myship,
-                                               my_ship.ship->x1,
-                                               my_ship.ship->y1);
+                        if (player_killed){
+                                tumDrawLoadedImage(player_explosion,
+                                                   my_ship.ship->x1,
+                                                   my_ship.ship->y1);
 
-                            tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
-                        
-                        }else{
-                            tumDrawFilledBox(my_ship.ship->x1, my_ship.ship->y1, 
-                                             my_ship.ship->w, my_ship.ship->h, Green);
+                                if (bufferExplosion == EXPLOSION_DELAY){
+                                    my_ship.ship_position = SCREEN_WIDTH / 2;
+                                    my_ship.lives--;
+                                    player_killed = 0;
+                                    bufferExplosion = 0;
+                                }else{
+                                    bufferExplosion++;
+                                }
 
-                            tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
+                        }
+                        else {
+                            if (myship) {
+                                tumDrawLoadedImage(myship,
+                                                   my_ship.ship->x1,
+                                                   my_ship.ship->y1);
+                            
+                            }else{
+                                tumDrawFilledBox(my_ship.ship->x1, my_ship.ship->y1, 
+                                                 my_ship.ship->w, my_ship.ship->h, Green);
+
+                                tumDrawLine(0, GROUND_POSITION, SCREEN_WIDTH, GROUND_POSITION, 3, Green);
+                            }
                         }
 
                         // draw bunkers
@@ -1880,6 +2044,24 @@ draw:
                                 tumDrawFilledBox(mysteryShip.enemy->x1, mysteryShip.enemy->y1, 
                                                  mysteryShip.enemy->w, mysteryShip.enemy->h, Red);
                             }
+                            if (bufferSound == 13){
+                                tumSoundPlayUserSample("mystery_ship.wav");
+                                bufferSound = 0;
+                            }else{
+                                bufferSound++;
+                            }
+                        }
+                        else if (mystery_killed){
+                            tumDrawLoadedImage(invader_explosion,
+                                               mysteryShip.enemy->x1 + (mystery_ship_width - invader_explosion_width) / 2,
+                                               mysteryShip.enemy->y1);
+
+                            if (bufferExplosion == EXPLOSION_DELAY){
+                                mystery_killed = 0;
+                                bufferExplosion = 0;
+                            }else{
+                                bufferExplosion++;
+                            }
                         }
                     }
                 }
@@ -1902,6 +2084,12 @@ int gamesInit(void)
 {
     //Random numbers
     srand(time(NULL));
+
+    killedInvaderQueue = xQueueCreate(2, sizeof(int));
+    if (!killedInvaderQueue){
+        PRINT_ERROR("Could not open killedInvaderQueue");
+        goto err_killedinvaderqueue;
+    }
 
     buttons.lock = xSemaphoreCreateMutex(); // Locking mechanism
     if (!buttons.lock) {
@@ -1965,5 +2153,7 @@ err_screen_lock:
 err_draw_signal:
     vSemaphoreDelete(buttons.lock);
 err_button_lock:
+    vQueueDelete(killedInvaderQueue);
+err_killedinvaderqueue:
     return -1;
 }

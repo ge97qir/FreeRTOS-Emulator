@@ -7,6 +7,9 @@
 #define RESUME 0
 #define MAIN_MENU 1
 
+#define OFF 0
+#define ON 1
+
 #define SINGLE_PLAYER_MODE 0
 #define MULTIPLAYER_MODE 1
 
@@ -14,12 +17,14 @@ extern TaskHandle_t PausedStateTask;
 
 extern TaskHandle_t SinglePlayerMenu;
 extern TaskHandle_t MultiPlayerMenu;
-extern TaskHandle_t ScoreMenu;
 extern TaskHandle_t CheatsMenu;
 extern TaskHandle_t ExitMenu;
 
 extern QueueHandle_t restartGameQueue;
 extern QueueHandle_t gameModeQueue;
+extern QueueHandle_t livesQueue;
+extern QueueHandle_t levelQueue;
+extern QueueHandle_t scoreQueue;
 
 int menuInit(void);
 

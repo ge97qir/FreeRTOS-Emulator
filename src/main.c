@@ -21,13 +21,12 @@
 
 #define STATE_QUEUE_LENGTH 1
 
-#define STATE_COUNT 5
+#define STATE_COUNT 4
 
 #define SIGNLE_PLAYER 0
 #define MULTIPLAYER 1
-#define HIGH_SCORE 2
-#define CHEATS 3
-#define EXIT 4
+#define CHEATS 2
+#define EXIT 3
 
 /*
 #define STATE_PLAYING 0
@@ -193,27 +192,16 @@ initial_state:
                     if (SinglePlayerMenu) {
                         vTaskSuspend(SinglePlayerMenu);
                     }
-                    if (ScoreMenu) {
-                        vTaskSuspend(ScoreMenu);
+                    if (CheatsMenu) {
+                        vTaskSuspend(CheatsMenu);
                     }
                     if (MultiPlayerMenu) {
                         vTaskResume(MultiPlayerMenu);
                     }
                     break;
-                case HIGH_SCORE:
-                    if (MultiPlayerMenu) {
-                        vTaskSuspend(MultiPlayerMenu);
-                    }
-                    if (CheatsMenu) {
-                        vTaskSuspend(CheatsMenu);
-                    }
-                    if (ScoreMenu) {
-                        vTaskResume(ScoreMenu);
-                    }
-                    break;
                 case CHEATS:
-                     if (ScoreMenu) {
-                        vTaskSuspend(ScoreMenu);
+                     if (MultiPlayerMenu) {
+                        vTaskSuspend(MultiPlayerMenu);
                     }
                     if (ExitMenu) {
                         vTaskSuspend(ExitMenu);
