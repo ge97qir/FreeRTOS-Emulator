@@ -112,6 +112,7 @@ void vPausedStateTask(void *pvParameters)
                                 if(selection == RESUME){
                                     if (MultiPlayerGame) {
                                         vTaskResume(MultiPlayerGame);
+                                        vTaskResume(UDPControlTask);
                                     }
                                     selection = RESUME; // resets the selection 
                                     if (PausedStateTask) {
@@ -330,11 +331,13 @@ void vMultiPlayerMenu(void *pvParameters) {
                             last_change = xTaskGetTickCount();
                             if (MultiPlayerGame) {
                                 vTaskResume(MultiPlayerGame);
+                                vTaskResume(UDPControlTask);
                             }
                             xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
                             xQueueSendToFront(gameModeQueue, &gameModeMulti, portMAX_DELAY);
                             if (MultiPlayerMenu) {
                                 vTaskSuspend(MultiPlayerMenu);
+                                vTaskSuspend(UDPControlTask);
                             }
                         }
                     }

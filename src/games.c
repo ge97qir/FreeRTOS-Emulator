@@ -196,10 +196,10 @@ void vUDPControlTask(void *pvParameters)
     unsigned int player_x = 0;
     unsigned int mothership_x = 0;
     
-    char last_binary_state = OFF;
-    char binary_state = ON;
+    char last_binary_state = -1;
+    char binary_state = OFF;
     
-    char last_bullet_state = ATTACKING;
+    char last_bullet_state = -1;
     char bullet_state = PASSIVE;
 
     char last_difficulty = -1;
@@ -223,7 +223,7 @@ void vUDPControlTask(void *pvParameters)
         while (xQueueReceive(BinaryStateQueue, &binary_state, 0) == pdTRUE) {
         }
         // player and mothership position
-        signed int diff = mothership_x - player_x;
+        signed int diff = player_x - mothership_x;
         if (diff > 0) {
             sprintf(buf, "+%d", diff);
         }
@@ -246,7 +246,7 @@ void vUDPControlTask(void *pvParameters)
 
         // AI difficulty
         if (last_difficulty != current_difficulty) {
-            sprintf(buf, "D%d", current_difficulty + 1);
+            sprintf(buf, "D%d", (current_difficulty + 1));
             aIOSocketPut(UDP, NULL, UDP_TRANSMIT_PORT, buf,
                          strlen(buf));
             last_difficulty = current_difficulty;
@@ -356,20 +356,43 @@ void playBallSound(void *args)
     tumSoundPlaySample(a3);
 }
 
-void vDrawHelpText(void)
+void vDrawHelpText(char mode, char difficulty)
 {
     static char str[100] = { 0 };
-    static int text_width;
+    static int text_width1;
+    static int text_width2;
     ssize_t prev_font_size = tumFontGetCurFontSize();
 
     tumFontSetSize((ssize_t)20);
 
     sprintf(str, "[Q]uit [P]ause [R]estart");
 
-    if (!tumGetTextSize((char *)str, &text_width, NULL))
+    if (!tumGetTextSize((char *)str, &text_width1, NULL)){
         tumDrawText(str,
-                    SCREEN_WIDTH - text_width - DEFAULT_FONT_SIZE * 2.5,
+                    SCREEN_WIDTH - text_width1 - DEFAULT_FONT_SIZE * 2.5,
                     DEFAULT_FONT_SIZE * 1.5, White);
+    }
+    
+    if (mode) {
+        sprintf(str, "AI [M]ode");
+    }
+    else {
+        sprintf(str, "Normal [M]ode");
+    }
+
+    tumDrawText(str,SCREEN_WIDTH - text_width1 - DEFAULT_FONT_SIZE * 2.5,
+                    2 * DEFAULT_FONT_SIZE * 1.5, White);
+
+    
+    if (!tumGetTextSize((char *)str, &text_width2, NULL)){
+        if (mode) {
+            sprintf(str, "AI [L]evel: %d", difficulty + 1);
+        
+            tumDrawText(str,
+                    SCREEN_WIDTH - text_width1 - DEFAULT_FONT_SIZE * 2.5 + text_width2 + DEFAULT_FONT_SIZE,
+                    2 * DEFAULT_FONT_SIZE * 1.5, White);
+        }
+    }
 
     tumFontSetSize(prev_font_size);
 }
@@ -720,7 +743,7 @@ void vPongControlTask(void *pvParameters)
                     // Draw the walls
                     vDrawWall(top_wall);
                     vDrawWall(bottom_wall);
-                    vDrawHelpText();
+                    //vDrawHelpText();
 
                     // Check for score updates
                     if (RightScoreQueue) {
@@ -1414,15 +1437,15 @@ void vMultiPlayerGame(void *pvParameters){
     if (!MothershipPositionQueue) {
         exit(EXIT_FAILURE);
     }
-    BulletQueue = xQueueCreate(5, sizeof(unsigned char));
+    BulletQueue = xQueueCreate(10, sizeof(unsigned char));
     if (!BulletQueue) {
         exit(EXIT_FAILURE);
     }
-    DifficultyQueue = xQueueCreate(5, sizeof(unsigned char));
+    DifficultyQueue = xQueueCreate(10, sizeof(unsigned char));
     if (!DifficultyQueue) {
         exit(EXIT_FAILURE);
     }
-    BinaryStateQueue = xQueueCreate(5, sizeof(unsigned char));
+    BinaryStateQueue = xQueueCreate(10, sizeof(unsigned char));
     if (!BinaryStateQueue) {
         exit(EXIT_FAILURE);
     }
@@ -1472,6 +1495,8 @@ void vMultiPlayerGame(void *pvParameters){
     unsigned short bufferSound = 0;
     // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
     unsigned short bufferExplosion = 0;
+    // buffer for the AI mothership to move into the game screen
+    unsigned short bufferAI = 0;
 
     // flags if the player or any enemy have been killed
     unsigned short player_killed = 0;
@@ -1639,6 +1664,7 @@ void vMultiPlayerGame(void *pvParameters){
                         }
                         if (MultiPlayerGame) {
                             vTaskSuspend(MultiPlayerGame);
+                            vTaskSuspend(UDPControlTask);
                         }
                     }
                     else if (buttons.buttons[KEYCODE(R)]) {
@@ -1693,16 +1719,16 @@ void vMultiPlayerGame(void *pvParameters){
                     }
                     else if (buttons.buttons[KEYCODE(M)]) {
                         xSemaphoreGive(buttons.lock);
-                        opponent_mode =
-                            (opponent_mode + 1) % 2;
-                        if (opponent_mode) {
-                            vTaskResume(
-                                UDPControlTask);
+                        opponent_mode = (opponent_mode + 1) % 2;
+                        /*if (opponent_mode) {
+                            
+                            vTaskResume(UDPControlTask);
                         }
                         else {
-                            vTaskSuspend(
-                                UDPControlTask);
-                        }
+                            
+                            vTaskSuspend(UDPControlTask);
+                        }*/
+                        xQueueSend(BinaryStateQueue, (void *)&opponent_mode, portMAX_DELAY);
                         vTaskDelay(200);
                     }
                     else if (buttons.buttons[KEYCODE(L)] && opponent_mode) {
@@ -1870,7 +1896,11 @@ void vMultiPlayerGame(void *pvParameters){
                 if (mysteryShip.dead == ALIVE){
                     // human mode = 0, computer mode = 1
                     if (opponent_mode){
-                        if (NextKeyQueue) {
+                        
+                        if (bufferAI < 50){
+                            updateMysteryshipPosition(&mysteryShip, &mysteryship_direction);
+                            bufferAI++;
+                        }else if (NextKeyQueue) {
                             xQueueReceive(NextKeyQueue, &current_key, 0);
                             if (current_key == INC){
                                 binary_direction = RIGHT;
@@ -1879,10 +1909,16 @@ void vMultiPlayerGame(void *pvParameters){
                                 binary_direction = LEFT;
                                 updateMysteryshipPosition(&mysteryShip, &binary_direction);
                             }
+                            /*
                             xQueueSend(MothershipPositionQueue, (void *)&mysteryShip.enemy->x1, 0);
                             xQueueSend(PlayerPositionQueue, (void *)&my_ship.ship->x1, 0);
                             prevMysteryTime = xTaskGetTickCount();
+                            */
                         }
+                        xQueueSend(MothershipPositionQueue, (void *)&mysteryShip.enemy->x1, 0);
+                        xQueueSend(PlayerPositionQueue, (void *)&my_ship.ship->x1, 0);
+                        prevMysteryTime = xTaskGetTickCount();
+
                     }else{
                         updateMysteryshipPosition(&mysteryShip, &mysteryship_direction);
                         prevMysteryTime = xTaskGetTickCount();
@@ -1909,6 +1945,7 @@ void vMultiPlayerGame(void *pvParameters){
                         mysteryShip.dead = ALIVE;
                         prevMysteryTime = xTaskGetTickCount();
                     }
+                    bufferAI = 0;
                 }
 
 
@@ -2007,7 +2044,7 @@ draw:
                         }
                     }else{
                         vDrawFPS();
-                        vDrawHelpText();
+                        vDrawHelpText(opponent_mode, difficulty);
                         vDrawScore(&my_ship.score, &highscore);
                         vDrawLevel(&current_level);
                         vDrawLives(&my_ship.lives, myship, &my_ship);
