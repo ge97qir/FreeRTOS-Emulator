@@ -137,7 +137,7 @@ static QueueHandle_t PlayerPositionQueue = NULL;
 static QueueHandle_t MothershipPositionQueue = NULL;
 static QueueHandle_t BulletQueue = NULL;
 static QueueHandle_t DifficultyQueue = NULL;
-static QueueHandle_t BinaryStateQueue = NULL;
+QueueHandle_t BinaryStateQueue = NULL;
 
 static SemaphoreHandle_t HandleUDP = NULL;
 
@@ -196,13 +196,13 @@ void vUDPControlTask(void *pvParameters)
     unsigned int player_x = 0;
     unsigned int mothership_x = 0;
     
-    char last_binary_state = -1;
+    char last_binary_state = -8;
     char binary_state = OFF;
     
-    char last_bullet_state = -1;
+    char last_bullet_state = -8;
     char bullet_state = PASSIVE;
 
-    char last_difficulty = -1;
+    char last_difficulty = -8;
     char current_difficulty = 1;
 
     udp_soc_receive =
@@ -1099,6 +1099,7 @@ void mysteryshipReset(enemy_t *mysteryship, unsigned int *direction){
 
 
 void updateMysteryshipPosition(enemy_t *mysteryship, unsigned int *direction){
+    static char pause_binary = OFF;
     if (*direction == LEFT) {
         if (mysteryship->enemy->x2 >= 0) {
             setWallProperty(mysteryship->enemy, mysteryship->enemy->x1 - 2, 0, 0, 0, SET_WALL_X);
@@ -1106,6 +1107,7 @@ void updateMysteryshipPosition(enemy_t *mysteryship, unsigned int *direction){
         else{
             // set the state to dead when out of the screen
             mysteryship->dead = DEAD;
+            xQueueSend(BinaryStateQueue, (void *)&pause_binary, portMAX_DELAY);
         }
     }
     else if (*direction == RIGHT) {
@@ -1115,6 +1117,7 @@ void updateMysteryshipPosition(enemy_t *mysteryship, unsigned int *direction){
         else{
             // set the state to dead when out of the screen
             mysteryship->dead = DEAD;
+            xQueueSend(BinaryStateQueue, (void *)&pause_binary, portMAX_DELAY);
         }
     }
 }
@@ -1245,18 +1248,18 @@ unsigned int invaderHitBunker(invaders_t *invaders){
 }
 
 // TO-DO: hit animation and sound
-unsigned int bulletHitBunker(bunker_t *bunker, ball_t *bullet){
+unsigned int bulletHitBunker(bunker_t *bunker, bullet_t *bullet_obj){
     // if bulet betweeen x1 and x2 and y1 and y2 destroy the bunker block 
     // bh - bunker height & bw - bunker width
     for (int bh = 0; bh < BUNKER_HEIGHT; bh++){
         for (int bw = 0; bw < BUNKER_WIDTH; bw++){
             if (!bunker->bunker[bh][bw].dead){
                 // checking if the bullet is coliding with a specific invader
-                if (bullet->x >= bunker->bunker[bh][bw].bunker_block->x1 && 
-                    bullet->x <= bunker->bunker[bh][bw].bunker_block->x2 &&
-                    bullet->y >= bunker->bunker[bh][bw].bunker_block->y1 &&
-                    bullet->y <= bunker->bunker[bh][bw].bunker_block->y2){
-                    
+                if (bullet_obj->bullet->x >= bunker->bunker[bh][bw].bunker_block->x1 && 
+                    bullet_obj->bullet->x <= bunker->bunker[bh][bw].bunker_block->x2 &&
+                    bullet_obj->bullet->y >= bunker->bunker[bh][bw].bunker_block->y1 &&
+                    bullet_obj->bullet->y <= bunker->bunker[bh][bw].bunker_block->y2){
+                    bullet_obj->bullet_state = PASSIVE;
                     bunker->bunker[bh][bw].dead = DEAD; // set the state to dead
                     return 1;
                 }
@@ -1268,14 +1271,15 @@ unsigned int bulletHitBunker(bunker_t *bunker, ball_t *bullet){
 
 // TO-DO: make hit detection universal with casting or accepting wall_t
 
-unsigned int bulletHitMysteryship(enemy_t *mysteryship, ball_t *bullet, unsigned short *player_score){
+unsigned int bulletHitMysteryship(enemy_t *mysteryship, bullet_t *bullet_obj, unsigned short *player_score){
     if (!mysteryship->dead){
         // checking if the bullet is coliding with a specific invader
-        if (bullet->x >= mysteryship->enemy->x1 + 5 && 
-            bullet->x <= mysteryship->enemy->x2 - 5 &&
-            bullet->y >= mysteryship->enemy->y1 &&
-            bullet->y <= mysteryship->enemy->y2 - 15){
+        if (bullet_obj->bullet->x >= mysteryship->enemy->x1 + 5 && 
+            bullet_obj->bullet->x <= mysteryship->enemy->x2 - 5 &&
+            bullet_obj->bullet->y >= mysteryship->enemy->y1 &&
+            bullet_obj->bullet->y <= mysteryship->enemy->y2 - 15){
             
+            bullet_obj->bullet_state = PASSIVE;
             mysteryship->dead = DEAD; // set the state to dead
             //*player_score += *mysteryship->points;
             *player_score += abs(rand() % 301); // mystery ship is worth random amount of points (max 300)
@@ -1286,17 +1290,19 @@ unsigned int bulletHitMysteryship(enemy_t *mysteryship, ball_t *bullet, unsigned
 }
 
 // TO-DO: hit animation and sound
-unsigned int bulletHitInvader(invaders_t *invaders, ball_t *bullet, unsigned short *player_score){
+unsigned int bulletHitInvader(invaders_t *invaders, bullet_t *bullet_obj, unsigned short *player_score){
     // if bulet betweeen x1 and x2 and y1 and y2 make the invader dead 
     // and increment score by points amount
     for (int row = 0; row < ENEMY_ROWS; row++){
         for (int col = 0; col < ENEMY_COLUMNS; col++){
             if (!invaders->enemys[row][col].dead){
                 // checking if the bullet is coliding with a specific invader
-                if (bullet->x >= invaders->enemys[row][col].enemy->x1 && 
-                    bullet->x <= invaders->enemys[row][col].enemy->x2 &&
-                    bullet->y >= invaders->enemys[row][col].enemy->y1 &&
-                    bullet->y <= invaders->enemys[row][col].enemy->y2){
+                if (bullet_obj->bullet->x >= invaders->enemys[row][col].enemy->x1 && 
+                    bullet_obj->bullet->x <= invaders->enemys[row][col].enemy->x2 &&
+                    bullet_obj->bullet->y >= invaders->enemys[row][col].enemy->y1 &&
+                    bullet_obj->bullet->y <= invaders->enemys[row][col].enemy->y2){
+                    
+                    bullet_obj->bullet_state = PASSIVE;
                     invaders->enemys[row][col].dead = DEAD; // set the state to dead
                     invaders->killed_invaders++;
                     *player_score += *invaders->enemys[row][col].points;
@@ -1314,18 +1320,20 @@ unsigned int bulletHitInvader(invaders_t *invaders, ball_t *bullet, unsigned sho
 }
 
 // TO-DO: hit animation and sound
-unsigned int bulletHitPlayer(space_ship_t *player, ball_t *bullet){
+unsigned int bulletHitPlayer(space_ship_t *player, bullet_t *bullet_obj){
     // if bulet betweeen x1 and x2 and y1 and y2 make the player lose a life
     // and reset player position
     // checking if the bullet is coliding with a player
-    if (bullet->x >= player->ship->x1  && 
-        bullet->x <= player->ship->x2  &&
-        bullet->y >= player->ship->y1 + 15 &&   // this is just to lower the upper edge of the box 
+    if (bullet_obj->bullet->x >= player->ship->x1  && 
+        bullet_obj->bullet->x <= player->ship->x2  &&
+        bullet_obj->bullet->y >= player->ship->y1 + 15 &&   // this is just to lower the upper edge of the box 
                                                 // so it is more accurate to the image, 
                                                 // since it has a bit of a spike in the middle
         // this condition is adjusted so the invaders can not hit the player
         // when they are just one row above invasion (game over)
-        bullet->y <= player->ship->y1 + 25){
+        bullet_obj->bullet->y <= player->ship->y1 + 25){
+
+        bullet_obj->bullet_state = PASSIVE;
         return 1;
     }
     return 0; // no collisions detected
@@ -1357,7 +1365,7 @@ ball_t *shootBulletPlayer(bullet_t *bullet_obj, signed int ship_position){
     return bullet_obj->bullet;
 }
 
-ball_t *shootBulletInvaders(ball_t *bullet, invaders_t *invaders){
+ball_t *shootBulletInvaders(bullet_t *bullet_obj, invaders_t *invaders){
     unsigned short column_selection;
     wall_t *invader[ENEMY_COLUMNS] = { 0 };
     // finding the bottom most invaders
@@ -1381,14 +1389,15 @@ ball_t *shootBulletInvaders(ball_t *bullet, invaders_t *invaders){
     // ******************************************************
     
     // setting the starting location of the enemy bullet
-    setBallLocation(bullet, 
+    setBallLocation(bullet_obj->bullet, 
             // middle of the selected invader
             invader[column_selection]->x1 + invader[column_selection]->w / 2,
             // the bottom of the selected invader
             invader[column_selection]->y2);
 
-    setBallSpeed(bullet, 0, BULLET_SPEED / 3, BULLET_SPEED, SET_BALL_SPEED_Y);
-    return bullet;
+    setBallSpeed(bullet_obj->bullet, 0, BULLET_SPEED / 3, BULLET_SPEED, SET_BALL_SPEED_Y);
+    bullet_obj->bullet_state = ATTACKING;
+    return bullet_obj->bullet;
 }
 
 
@@ -1415,6 +1424,7 @@ unsigned char xCheckPongUDPInput(unsigned short *paddle_y)
 void vMultiPlayerGame(void *pvParameters){ 
     
     //*********************************************************************************************************************
+    const char turn_off = OFF;
     char opponent_mode = 0; // 0: player 1: computer
     char difficulty = 1; // 0: easy 1: normal 2: hard
     opponent_cmd_t current_key = NONE;
@@ -1545,7 +1555,7 @@ void vMultiPlayerGame(void *pvParameters){
         createBall(BULLET_RADIUS,
                    BULLET_RADIUS,
                    White, BULLET_RADIUS, BULLET_SPEED, NULL, NULL, NULL);
-    my_bullet.bullet_state = PASSIVE;
+    //my_bullet.bullet_state = PASSIVE;
     //my_bullet.bullet_position = SCREEN_HEIGHT - 3 * tumDrawGetLoadedImageHeight(myship); // also ship position in y coordinates
 
     // initialising player
@@ -1565,7 +1575,7 @@ void vMultiPlayerGame(void *pvParameters){
             createBall(BULLET_RADIUS,
                        BULLET_RADIUS,
                        White, BULLET_RADIUS, BULLET_SPEED, NULL, NULL, NULL);
-        invaders_bullets[b].bullet_state = PASSIVE;
+        //invaders_bullets[b].bullet_state = PASSIVE;
     }
 
     // initialising individual enemys
@@ -1659,12 +1669,13 @@ void vMultiPlayerGame(void *pvParameters){
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
                     if (buttons.buttons[KEYCODE(P)]) {
                         xSemaphoreGive(buttons.lock);
+                        xQueueSend(BinaryStateQueue, (void *)&turn_off, portMAX_DELAY);
                         if (PausedStateTask) {
                             vTaskResume(PausedStateTask);
                         }
                         if (MultiPlayerGame) {
                             vTaskSuspend(MultiPlayerGame);
-                            vTaskSuspend(UDPControlTask);
+                            //vTaskSuspend(UDPControlTask);
                         }
                     }
                     else if (buttons.buttons[KEYCODE(R)]) {
@@ -1768,19 +1779,19 @@ void vMultiPlayerGame(void *pvParameters){
                 // YOU HAVE TO CHANGE THIS!
                 // checking for bunker colisions
                 for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
-                    if (bulletHitBunker(&bunker[nob], my_bullet.bullet)){
+                    if (bulletHitBunker(&bunker[nob], &my_bullet)){
                         updateBulletPosition(&my_bullet, RESET_BULLET);
                         if (opponent_mode){
-                            xQueueSend(BulletQueue, &my_bullet.bullet_state, portMAX_DELAY);
+                            xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                         }
                     }
                 }
-                if (bulletHitInvader(&invaders, my_bullet.bullet, &my_ship.score)){
+                if (bulletHitInvader(&invaders, &my_bullet, &my_ship.score)){
                     invader_killed = 1;
                     tumSoundPlayUserSample("invader_explosion.wav");
                     updateBulletPosition(&my_bullet, RESET_BULLET);
                     if (opponent_mode){
-                        xQueueSend(BulletQueue, &my_bullet.bullet_state, portMAX_DELAY);
+                        xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                     }
                     // if all invaders are killed delete all enemy bullets and players bullet             
                     if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
@@ -1790,16 +1801,19 @@ void vMultiPlayerGame(void *pvParameters){
                         goto draw;
                     }
                 }
-                else if (bulletHitMysteryship(&mysteryShip, my_bullet.bullet, &my_ship.score)){
+                else if (bulletHitMysteryship(&mysteryShip, &my_bullet, &my_ship.score)){
                     mystery_killed = 1;
                     tumSoundPlayUserSample("invader_explosion.wav");
                     updateBulletPosition(&my_bullet, RESET_BULLET);
                     if (opponent_mode){
-                        xQueueSend(BulletQueue, &my_bullet.bullet_state, portMAX_DELAY);
+                        xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                     }
                 }
                 else if (my_bullet.bullet_state == ATTACKING){
                     updateBulletPosition(&my_bullet, xLastWakeTime - prevWakeTime);
+                    if (opponent_mode || my_bullet.bullet_state == PASSIVE){
+                            xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
+                    }
                 } 
 
 
@@ -1809,14 +1823,14 @@ void vMultiPlayerGame(void *pvParameters){
 
                 for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
                     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
-                        if (bulletHitBunker(&bunker[nob], invaders_bullets[b].bullet)){
+                        if (bulletHitBunker(&bunker[nob], &invaders_bullets[b])){
                             updateBulletPosition(&invaders_bullets[b], RESET_BULLET);
                         }
                     }
                     // CONDIITON IF INFINITE LIVES CHEAT IS ACTIVATED
 
 
-                    if(bulletHitPlayer(&my_ship, invaders_bullets[b].bullet)){
+                    if(bulletHitPlayer(&my_ship, &invaders_bullets[b])){
                             // reset all the bullets if colision with player is detected
                             if(!infinite_lives) {
                                 for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
@@ -1838,12 +1852,12 @@ void vMultiPlayerGame(void *pvParameters){
                     if (prevButtonState != buttons.buttons[KEYCODE(SPACE)]) {
                         if (prevButtonState < buttons.buttons[KEYCODE(SPACE)]){
                             if (xTaskGetTickCount() - prevShootTime > shootDebounceDelay){
-                                if (my_bullet.bullet->dy == 0) {
+                                if (my_bullet.bullet_state == PASSIVE) {
                                     my_bullet.bullet = shootBulletPlayer(&my_bullet, my_ship.ship_position);
                                     prevShootTime = xTaskGetTickCount();
                                     tumSoundPlayUserSample("player_shoot.wav");
                                     if (opponent_mode){
-                                        xQueueSend(BulletQueue, &my_bullet.bullet_state, portMAX_DELAY);
+                                        xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                                     }
                                 }
                             }
@@ -1858,8 +1872,7 @@ void vMultiPlayerGame(void *pvParameters){
                 if (xTaskGetTickCount() - prevBulletTime > bulletPeriodDelay){
                     for (int b = 0; b < MAX_ENEMY_BULLETS; b++){
                         if (invaders_bullets[b].bullet->dy == 0){
-                            invaders_bullets[b].bullet = shootBulletInvaders(invaders_bullets[b].bullet, &invaders);
-                            invaders_bullets[b].bullet_state = ATTACKING;
+                            invaders_bullets[b].bullet = shootBulletInvaders(&invaders_bullets[b], &invaders);
                             //bullet is created with random time intervals that are smaller than BULLET_START_DELAY (in ms)
                             //this is like a debounce timer but with a random delay period
                             prevBulletTime = xTaskGetTickCount();
@@ -1909,15 +1922,18 @@ void vMultiPlayerGame(void *pvParameters){
                                 binary_direction = LEFT;
                                 updateMysteryshipPosition(&mysteryShip, &binary_direction);
                             }
-                            /*
-                            xQueueSend(MothershipPositionQueue, (void *)&mysteryShip.enemy->x1, 0);
-                            xQueueSend(PlayerPositionQueue, (void *)&my_ship.ship->x1, 0);
+                            unsigned int player_pos = my_ship.ship->x1;
+                            unsigned int mystery_pos = mysteryShip.enemy->x1;
+                            
+                            xQueueSend(MothershipPositionQueue, (void *)&mystery_pos, 0);
+                            xQueueSend(PlayerPositionQueue, (void *)&player_pos, 0);
                             prevMysteryTime = xTaskGetTickCount();
-                            */
+                            
                         }
-                        xQueueSend(MothershipPositionQueue, (void *)&mysteryShip.enemy->x1, 0);
+                        /*xQueueSend(MothershipPositionQueue, (void *)&mysteryShip.enemy->x1, 0);
                         xQueueSend(PlayerPositionQueue, (void *)&my_ship.ship->x1, 0);
                         prevMysteryTime = xTaskGetTickCount();
+                        */
 
                     }else{
                         updateMysteryshipPosition(&mysteryShip, &mysteryship_direction);
@@ -1938,11 +1954,13 @@ void vMultiPlayerGame(void *pvParameters){
                     if (mysteryship_direction == RIGHT){
                         setWallProperty(mysteryShip.enemy, -mystery_ship_width, 0, 0, 0, SET_WALL_X);
                         mysteryShip.dead = ALIVE;
+                        xQueueSend(BinaryStateQueue, (void *)&opponent_mode, portMAX_DELAY);
                         prevMysteryTime = xTaskGetTickCount();
                     }
                     else if (mysteryship_direction == LEFT){
                         setWallProperty(mysteryShip.enemy, SCREEN_WIDTH, 0, 0, 0, SET_WALL_X);
                         mysteryShip.dead = ALIVE;
+                        xQueueSend(BinaryStateQueue, (void *)&opponent_mode, portMAX_DELAY);
                         prevMysteryTime = xTaskGetTickCount();
                     }
                     bufferAI = 0;

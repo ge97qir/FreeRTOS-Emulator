@@ -56,7 +56,8 @@ static int exit_text_width;
 
 
 void vPausedStateTask(void *pvParameters)
-{
+{   
+    const char turn_on = ON;
     static TickType_t last_change = 1;
 
     static const char *paused_text1 = "RESUME";
@@ -109,10 +110,11 @@ void vPausedStateTask(void *pvParameters)
                                 }
                                 break;
                             case MULTIPLAYER_MODE:
+                                xQueueSend(BinaryStateQueue, (void *)&turn_on, portMAX_DELAY);
                                 if(selection == RESUME){
                                     if (MultiPlayerGame) {
+                                        //vTaskResume(UDPControlTask);
                                         vTaskResume(MultiPlayerGame);
-                                        vTaskResume(UDPControlTask);
                                     }
                                     selection = RESUME; // resets the selection 
                                     if (PausedStateTask) {
@@ -127,6 +129,7 @@ void vPausedStateTask(void *pvParameters)
                                     selection = RESUME; // resets the selection 
                                     if (PausedStateTask) {
                                         vTaskSuspend(PausedStateTask);
+                                        vTaskSuspend(UDPControlTask);
                                     }
                                 }
                                 break;

@@ -26,6 +26,9 @@ extern QueueHandle_t livesQueue;
 extern QueueHandle_t levelQueue;
 extern QueueHandle_t scoreQueue;
 
+extern QueueHandle_t BinaryStateQueue;
+
+
 int menuInit(void);
 
 #endif // __MENU_H__
