@@ -15,6 +15,7 @@ extern TaskHandle_t LeftPaddleTask;
 extern TaskHandle_t RightPaddleTask;
 extern TaskHandle_t PongControlTask;
 extern TaskHandle_t MultiPlayerGame;
+extern TaskHandle_t UDPControlTask;
 
 //typedef struct buttons_buffer buttons_buffer_t;
 
