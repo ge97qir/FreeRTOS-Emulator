@@ -16,8 +16,8 @@ extern TaskHandle_t RightPaddleTask;
 extern TaskHandle_t PongControlTask;
 extern TaskHandle_t MultiPlayerGame;
 extern TaskHandle_t UDPControlTask;
-
-//typedef struct buttons_buffer buttons_buffer_t;
+extern TaskHandle_t MothershipTask;
+extern TaskHandle_t PlayerTask;
 
 typedef struct buttons_buffer {
     unsigned char buttons[SDL_NUM_SCANCODES];
@@ -27,7 +27,6 @@ typedef struct buttons_buffer {
 extern buttons_buffer_t buttons;
 
 void xGetButtonInput(void);
-
 
 int gamesInit(void);
 

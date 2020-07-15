@@ -20,7 +20,7 @@
 #include "queue.h"
 
 // CHEATS MENU
-// MAIN_MENE defined in the header as 1
+// MAIN_MENU defined in the header as 1
 #define LIVES 6
 #define LEVEL 5
 #define SCORE 4
@@ -113,8 +113,9 @@ void vPausedStateTask(void *pvParameters)
                                 xQueueSend(BinaryStateQueue, (void *)&turn_on, portMAX_DELAY);
                                 if(selection == RESUME){
                                     if (MultiPlayerGame) {
-                                        //vTaskResume(UDPControlTask);
                                         vTaskResume(MultiPlayerGame);
+                                        vTaskResume(MothershipTask);
+                                        vTaskResume(PlayerTask);
                                     }
                                     selection = RESUME; // resets the selection 
                                     if (PausedStateTask) {
@@ -129,7 +130,6 @@ void vPausedStateTask(void *pvParameters)
                                     selection = RESUME; // resets the selection 
                                     if (PausedStateTask) {
                                         vTaskSuspend(PausedStateTask);
-                                        vTaskSuspend(UDPControlTask);
                                     }
                                 }
                                 break;
@@ -316,6 +316,15 @@ void vMultiPlayerMenu(void *pvParameters) {
     TickType_t last_change = 1;
     static const unsigned int restartSignal = 1;
     static unsigned int gameModeMulti = MULTIPLAYER_MODE;
+    
+    static char blinky = 0;
+    static char binary_running = OFF;
+    static const char *binary_warning = "YOU NEED TO RUN THE BINARY TO PLAY THIS MODE!";
+    static const char *binary_waiting = "[WAITING TO RECEIVE SIGNAL]";
+    static int warning_width;
+    static int waiting_width;
+    tumGetTextSize((char *)binary_warning, &warning_width, NULL);
+    tumGetTextSize((char *)binary_waiting, &waiting_width, NULL);
 
     while (1) {
         if (DrawSignal) {
@@ -323,8 +332,12 @@ void vMultiPlayerMenu(void *pvParameters) {
                 pdTRUE) {
                 xGetButtonInput(); // Update global button data
 
+                if(xQueueReceive(NextKeyQueue, &binary_running, 0) == pdTRUE){
+                    binary_running = ON;
+                }
+
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
-                    if (buttons.buttons[KEYCODE(RETURN)]) {
+                    if (buttons.buttons[KEYCODE(RETURN)] && binary_running) {
                         xSemaphoreGive(buttons.lock);
                         if (last_change){
                             xQueueReceive(debounceQueue, &last_change, 0);
@@ -334,13 +347,14 @@ void vMultiPlayerMenu(void *pvParameters) {
                             last_change = xTaskGetTickCount();
                             if (MultiPlayerGame) {
                                 vTaskResume(MultiPlayerGame);
-                                vTaskResume(UDPControlTask);
+                                vTaskResume(MothershipTask);
+                                vTaskResume(PlayerTask);
                             }
+                            // queue or smphr for restarting mothership
                             xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
                             xQueueSendToFront(gameModeQueue, &gameModeMulti, portMAX_DELAY);
                             if (MultiPlayerMenu) {
                                 vTaskSuspend(MultiPlayerMenu);
-                                vTaskSuspend(UDPControlTask);
                             }
                         }
                     }
@@ -390,7 +404,25 @@ void vMultiPlayerMenu(void *pvParameters) {
                                 SCREEN_WIDTH / 2 -
                                 exit_text_width / 2,
                                 SCREEN_HEIGHT / 2 + 3 * text_height,
-                                White);                                
+                                White);
+
+                    if (!binary_running){
+                        tumDrawText((char *)binary_warning,
+                                SCREEN_WIDTH / 2 - warning_width / 2,
+                                SCREEN_HEIGHT / 2 + 8 * text_height,
+                                Yellow);
+                        if(blinky <= 50){
+                            tumDrawText((char *)binary_waiting,
+                                        SCREEN_WIDTH / 2 - waiting_width / 2,
+                                        SCREEN_HEIGHT / 2 + 10 * text_height, 
+                                        Yellow);
+                            blinky++;
+                        }else if (blinky <= 100){
+                            blinky++;
+                        }else{
+                            blinky = 0;
+                        }
+                    }                             
                 }
 
                 xSemaphoreGive(ScreenLock);
@@ -643,6 +675,7 @@ void vCheatsTask(void *pvParameters)
                                     xQueueOverwrite(livesQueue, &lives_cheat);
                                     xQueueOverwrite(levelQueue, &level_cheat);
                                     xQueueOverwrite(scoreQueue, &score_cheat);
+                                    xQueueSendToFront(scoreQueue, &score_cheat, portMAX_DELAY);
 
                                     if (CheatsMenu) {
                                         vTaskResume(CheatsMenu);
@@ -1003,7 +1036,7 @@ void vExitMenu(void *pvParameters) {
 
 int menuInit(void)
 {
-    scoreQueue = xQueueCreate(1, sizeof(signed short));
+    scoreQueue = xQueueCreate(2, sizeof(signed short));
     if (!scoreQueue){
         PRINT_ERROR("Could not open scoreQueue");
         goto err_scorequeue;

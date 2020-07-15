@@ -59,7 +59,7 @@ void checkDraw(unsigned char status, const char *msg)
     }
 }
 
-#define FPS_AVERAGE_COUNT 100
+#define FPS_AVERAGE_COUNT 50
 #define FPS_FONT "IBMPlexSans-Bold.ttf"
 
 void vDrawFPS(void)
@@ -198,6 +198,10 @@ initial_state:
                     if (MultiPlayerMenu) {
                         vTaskResume(MultiPlayerMenu);
                     }
+                    if (UDPControlTask) {
+                        vTaskResume(UDPControlTask);
+                    
+                    }
                     break;
                 case CHEATS:
                      if (MultiPlayerMenu) {
@@ -307,6 +311,8 @@ int main(int argc, char *argv[])
     gamesInit();
 
     vTaskStartScheduler();
+
+    vTaskResume(UDPControlTask);
 
     return EXIT_SUCCESS;
 
