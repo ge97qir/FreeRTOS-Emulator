@@ -413,10 +413,10 @@ void vDrawHelpText(char mode, char difficulty)
     }
     
     if (mode) {
-        sprintf(str, "AI [M]ode");
+        sprintf(str, "AI Mode");
     }
     else {
-        sprintf(str, "Normal [M]ode");
+        sprintf(str, "Normal Mode");
     }
 
     tumDrawText(str,SCREEN_WIDTH - text_width1 - DEFAULT_FONT_SIZE * 2.5,
@@ -1467,8 +1467,9 @@ void vMultiPlayerGame(void *pvParameters){
     // HIGHSCORE file location
     FILE *fp = NULL;
     unsigned short highscore;
+    //unsigned short highscoreAI;
     char* highscore_file = "../resources/highscore.txt";
-
+    char* highscoreAI_file = "../resources/highscoreAI.txt";
     // BUFFERS for delays
     // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
     unsigned short bufferExplosion = 0;
@@ -1612,6 +1613,7 @@ void vMultiPlayerGame(void *pvParameters){
                     if (buttons.buttons[KEYCODE(P)]) {
                         xSemaphoreGive(buttons.lock);
                         xQueueSend(BinaryStateQueue, (void *)&turn_off, portMAX_DELAY);
+                        xQueueSend(gameModeQueue, &opponent_mode, portMAX_DELAY);
                         if (PausedStateTask) {
                             vTaskResume(PausedStateTask);
                         }
@@ -1629,28 +1631,29 @@ void vMultiPlayerGame(void *pvParameters){
                     else if (buttons.buttons[KEYCODE(R)]) {
                         xSemaphoreGive(buttons.lock);
                         // Receiving all the cheats to initialize the game accordingly
-                        
+
                         xQueueReceive(livesQueue, &infinite_lives, 0);
                         xQueueReceive(levelQueue, &starting_level, 0);
                         while(xQueueReceive(scoreQueue, &reset_score, 0) == pdTRUE){    
                         }
-                        xQueueSendToFront(scoreQueue, &reset_score, portMAX_DELAY);
+                        xQueueOverwrite(scoreQueue, &reset_score);
+                        xQueueReceive(gameModeQueue, &opponent_mode, 0);
 
                         current_level = starting_level;
                         current_lives = MAX_PLAYER_LIVES;                  
                         // RESETING PLAYER
                         
-                        xQueueSend(ResetPlayerQueue, &bufferQueue, portMAX_DELAY);
+                        xQueueOverwrite(ResetPlayerQueue, &bufferQueue);
 
                         // RESETING INVADERS
                         
                         resetInvaders(&invaders, &invader1_width, &invaders_height);
                         updateInvadersPosition(NULL, RESET);
                         invader_killed = 0;
-                        
+                        init_invader = 1;
+                        invader_init_delay = 0;
                         // RESETING MOTHERSHIP
-                        
-                        xQueueSend(ResetMothershipQueue, &bufferQueue, portMAX_DELAY);
+                        xQueueOverwrite(ResetMothershipQueue, &bufferQueue);
                         
 
                         // RESETING BUNKERS
@@ -1672,14 +1675,26 @@ void vMultiPlayerGame(void *pvParameters){
                         init_game = 1;
                         
                         // HIGHSCORE RESET  (TO-DO do I even need this?)
-                        fp = fopen(highscore_file, "r");
-                        if (fp != NULL){
-                            highscore = getw(fp);
+                        if (opponent_mode){
+                            fp = fopen(highscoreAI_file, "r");
+                            if (fp != NULL){
+                                highscore = getw(fp);
+                            }else{
+                                highscore = 0;
+                            }
+                            fclose(fp);
+                            //xQueueSend(HighscoreQueue, &highscoreAI, portMAX_DELAY);
                         }else{
-                            highscore = 0;
+                            fp = fopen(highscore_file, "r");
+                            if (fp != NULL){
+                                highscore = getw(fp);
+                            }else{
+                                highscore = 0;
+                            }
+                            fclose(fp);
+
                         }
-                        fclose(fp);
-                        xQueueSend(HighscoreQueue, &highscore, portMAX_DELAY);
+                        xQueueOverwrite(HighscoreQueue, &highscore);
                         if (MothershipTask){
                             vTaskResume(MothershipTask);
                         }
@@ -1688,16 +1703,6 @@ void vMultiPlayerGame(void *pvParameters){
                         }    
 
                     }
-                    // change from AI to NORMAL mode
-                    else if (buttons.buttons[KEYCODE(M)]) {
-                        xSemaphoreGive(buttons.lock);
-                        opponent_mode = (opponent_mode + 1) % 2;
-                        xQueueSend(BinaryStateQueue, (void *)&opponent_mode, portMAX_DELAY);
-                        xQueueSend(OpponentModeQueueM, &opponent_mode, portMAX_DELAY);
-                        xQueueSend(OpponentModeQueueP, &opponent_mode, portMAX_DELAY);
-                        vTaskDelay(200);
-                    }
-
                     // change the level of difficulty of the AI mode
                     else if (buttons.buttons[KEYCODE(L)] && opponent_mode) {
                         xSemaphoreGive(buttons.lock);
@@ -1853,12 +1858,16 @@ void vMultiPlayerGame(void *pvParameters){
                         if (prevButtonState < buttons.buttons[KEYCODE(SPACE)]){
                             if (xTaskGetTickCount() - prevButtonTime > buttonDebounceDelay){
                                 if (my_bullet.bullet_state == PASSIVE && !invader_killed) {
-                                    my_bullet.bullet = shootBulletPlayer(&my_bullet, player.ship_position);
-                                    prevButtonTime = xTaskGetTickCount();
-                                    tumSoundPlayUserSample("player_shoot.wav");
-                                    if (opponent_mode){
-                                        xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
+                                    if (xSemaphoreTake(player.lock, portMAX_DELAY) == pdTRUE){
+                                        my_bullet.bullet = shootBulletPlayer(&my_bullet, player.ship_position);
+                                        xSemaphoreGive(player.lock);
+                                        prevButtonTime = xTaskGetTickCount();
+                                        tumSoundPlayUserSample("player_shoot.wav");
+                                        if (opponent_mode){
+                                            xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
+                                        }
                                     }
+
                                 }
                             }
                         }
@@ -1902,19 +1911,30 @@ draw:
                         vTaskSuspend(PlayerTask);
                         vTaskSuspend(MothershipTask);
                         // checks if the player achieved a highscore and updates it
-                        if (player.score > highscore){
-                            highscore = player.score;
-                            xSemaphoreGive(player.lock);
-                            // opens a highscore file and edits it
-                            fp = fopen(highscore_file, "w");
-                            if (fp != NULL){
-                                putw(highscore, fp);
+                        if (xSemaphoreTake(player.lock, portMAX_DELAY) == pdTRUE){
+                            if (player.score > highscore){
+                                highscore = player.score;
+                                xSemaphoreGive(player.lock);
+                                // opens a highscore file and edits it
+                                if (opponent_mode){
+                                    fp = fopen(highscoreAI_file, "w");
+                                    if (fp != NULL){
+                                        putw(highscore, fp);
+                                    }
+                                    fclose(fp);
+                                }else{
+                                    fp = fopen(highscore_file, "w");
+                                    if (fp != NULL){
+                                        putw(highscore, fp);
+                                    }
+                                    fclose(fp);
+                                }
                             }
-                            fclose(fp);
+                            xSemaphoreGive(player.lock);
                         }
                         vDrawGameOver();
-                    // WHAT TO DRAW IF WE KILLED ALL THE INVADERS
-                    }else if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS)){
+                    // WHAT TO DRAW IF WE KILLED ALL THE INVADERS & THEIR ANIMATIONS ENDED
+                    }else if (invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS) && !invader_killed){
                         vTaskSuspend(MothershipTask);
                         vTaskSuspend(PlayerTask);
                         vDrawNextLevel();
@@ -1923,7 +1943,7 @@ draw:
                                 if (prevButtonState < buttons.buttons[KEYCODE(SPACE)]){
                                     if (xTaskGetTickCount() - prevButtonTime > buttonDebounceDelay){
                                         // RESETING PLAYER
-                                        xQueueSend(ResetPlayerQueue, &bufferQueue, portMAX_DELAY);
+                                        xQueueOverwrite(ResetPlayerQueue, &bufferQueue);
 
                                         // RESETING INVADERS
                                         resetInvaders(&invaders, &invader1_width, &invaders_height);
@@ -1931,7 +1951,7 @@ draw:
                                         invader_killed = 0;
                                         
                                         // RESETING MOTHERSHIP
-                                        xQueueSend(ResetMothershipQueue, &bufferQueue, portMAX_DELAY);
+                                        xQueueOverwrite(ResetMothershipQueue, &bufferQueue);
 
                                         // RESETING BUNKERS
                                         for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
@@ -1949,6 +1969,8 @@ draw:
 
                                         // INITIALISING SEQUENCE (drawing invaders one by one)
                                         init_game = 1;
+                                        init_invader = 1;
+                                        invader_init_delay = 0;
                                         current_level++;
                                         if (MothershipTask){
                                             vTaskResume(MothershipTask);

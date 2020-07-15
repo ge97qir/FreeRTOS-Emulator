@@ -21,11 +21,12 @@
 
 // CHEATS MENU
 // MAIN_MENU defined in the header as 1
-#define LIVES 6
-#define LEVEL 5
-#define SCORE 4
-#define CHEATS_OFF 3
-#define HIGHSCORE 2
+#define LIVES 7
+#define LEVEL 6
+#define SCORE 5
+#define CHEATS_OFF 4
+#define HIGHSCORE_NORMAL 3
+#define HIGHSCORE_AI 2
 
 TaskHandle_t CheatsTask = NULL;
 TaskHandle_t PausedStateTask = NULL;
@@ -58,6 +59,7 @@ static int exit_text_width;
 void vPausedStateTask(void *pvParameters)
 {   
     const char turn_on = ON;
+    const char turn_off = OFF;
     static TickType_t last_change = 1;
 
     static const char *paused_text1 = "RESUME";
@@ -76,67 +78,45 @@ void vPausedStateTask(void *pvParameters)
             if (xSemaphoreTake(DrawSignal, portMAX_DELAY) ==
                 pdTRUE) {
                 xGetButtonInput(); // Update global button data
-
+                xQueueReceive(gameModeQueue, &gameMode, 0);
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
                     if (buttons.buttons[KEYCODE(RETURN)]) {
-                        xSemaphoreGive(buttons.lock);
-                        xQueueReceive(gameModeQueue, &gameMode, 0);
-                        switch (gameMode) {
-                            case SINGLE_PLAYER_MODE:
-                                if(selection == RESUME){
-                                    if (PongControlTask) {
-                                        vTaskResume(PongControlTask);
-                                    }
-                                    if (LeftPaddleTask) {
-                                        vTaskResume(LeftPaddleTask);
-                                    }
-                                    if (RightPaddleTask) {
-                                        vTaskResume(RightPaddleTask);
-                                    }
-                                    selection = RESUME; // resets the selection 
-                                    if (PausedStateTask) {
-                                        vTaskSuspend(PausedStateTask);
-                                    }
-                                }else if(selection == MAIN_MENU){
-                                    last_change = xTaskGetTickCount();
-                                    xQueueSendToFront(debounceQueue, &last_change, portMAX_DELAY);
-                                    if (SinglePlayerMenu) {
-                                        vTaskResume(SinglePlayerMenu);
-                                    }
-                                    selection = RESUME; // resets the selection 
-                                    if (PausedStateTask) {
-                                        vTaskSuspend(PausedStateTask);
-                                    }
-                                }
-                                break;
-                            case MULTIPLAYER_MODE:
+                        xSemaphoreGive(buttons.lock);                        
+                        if(selection == RESUME){
+                            if (gameMode){
                                 xQueueSend(BinaryStateQueue, (void *)&turn_on, portMAX_DELAY);
-                                if(selection == RESUME){
-                                    if (MultiPlayerGame) {
-                                        vTaskResume(MultiPlayerGame);
-                                        vTaskResume(MothershipTask);
-                                        vTaskResume(PlayerTask);
-                                    }
-                                    selection = RESUME; // resets the selection 
-                                    if (PausedStateTask) {
-                                        vTaskSuspend(PausedStateTask);
-                                    }
-                                }else if(selection == MAIN_MENU){
-                                    last_change = xTaskGetTickCount();
-                                    xQueueSendToFront(debounceQueue, &last_change, portMAX_DELAY);
-                                    if (MultiPlayerMenu) {
-                                        vTaskResume(MultiPlayerMenu);
-                                    }
-                                    selection = RESUME; // resets the selection 
-                                    if (PausedStateTask) {
-                                        vTaskSuspend(PausedStateTask);
-                                    }
+                            }
+                            if (MultiPlayerGame) {
+                                vTaskResume(MultiPlayerGame);
+                            }
+                            if (MothershipTask) {
+                                vTaskResume(MothershipTask);
+                            }
+                            if (PlayerTask) {
+                                vTaskResume(PlayerTask);
+                            }
+                            selection = RESUME; // resets the selection 
+                            if (PausedStateTask) {
+                                vTaskSuspend(PausedStateTask);
+                            }
+                        }else if(selection == MAIN_MENU){
+                            xQueueSend(BinaryStateQueue, (void *)&turn_off, portMAX_DELAY);
+                            last_change = xTaskGetTickCount();
+                            xQueueSendToFront(debounceQueue, &last_change, portMAX_DELAY);
+                            if(gameMode){
+                                if (MultiPlayerMenu) {
+                                    vTaskResume(MultiPlayerMenu);
                                 }
-                                break;
-                            default:
-                                break;
+                            }else{
+                                if (SinglePlayerMenu) {
+                                    vTaskResume(SinglePlayerMenu);
+                                }
+                            }
+                            selection = RESUME; // resets the selection 
+                            if (PausedStateTask) {
+                                vTaskSuspend(PausedStateTask);
+                            }
                         }
-
                     }
                     xSemaphoreGive(buttons.lock);
                 }
@@ -235,14 +215,14 @@ void vSinglePlayerMenu(void *pvParameters) {
                         if (xTaskGetTickCount() - last_change >
                             STATE_DEBOUNCE_DELAY) {
                             last_change = xTaskGetTickCount();
-                            if (PongControlTask) {
-                                vTaskResume(PongControlTask);
+                            if (MultiPlayerGame) {
+                                vTaskResume(MultiPlayerGame);
                             }
-                            if (LeftPaddleTask) {
-                                vTaskResume(LeftPaddleTask);
+                            if (MothershipTask) {
+                                vTaskResume(MothershipTask);
                             }
-                            if (RightPaddleTask) {
-                                vTaskResume(RightPaddleTask);
+                            if (PlayerTask) {
+                                vTaskResume(PlayerTask);
                             }
                             xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
                             xQueueSendToFront(gameModeQueue, &gameModeSingle, portMAX_DELAY);
@@ -445,7 +425,9 @@ void vCheatsTask(void *pvParameters)
 
     FILE *fp = NULL;
     char* highscore_file = "../resources/highscore.txt";
+    char* highscoreAI_file = "../resources/highscoreAI.txt";
     static unsigned int highscore = 0;
+    static unsigned int highscoreAI = 0;
 
     static TickType_t last_change = 1;
     static unsigned short lives_cheat = OFF;
@@ -453,6 +435,7 @@ void vCheatsTask(void *pvParameters)
     static signed short score_cheat = 0;
 
     static char highscore_text[10] = { 0 };
+    static char highscoreAI_text[10] = { 0 };
     static char level_text[10] = "< 1 >";
     static char score_text[10] = "< 0 >";
     static const char *on_text = "< ON >";
@@ -463,7 +446,9 @@ void vCheatsTask(void *pvParameters)
     static const char *cheats_text3 = "STARTING SCORE";
     static const char *cheats_text4 = "TURN OFF CHEATS";
     // my addition for better user experience
-    static const char *cheats_text5 = "RESET HIGHSCORE";
+    static const char *cheats_text5 = "RESET NORMAL MODE HIGHSCORE";
+    static const char *cheats_text5_ai = "RESET AI MODE HIGHSCORE";
+
     static const char *cheats_text6 = "RETURN TO MAIN MENU";
 
     static int cheats_text_width1;
@@ -471,6 +456,7 @@ void vCheatsTask(void *pvParameters)
     static int cheats_text_width3;
     static int cheats_text_width4;
     static int cheats_text_width5;
+    static int cheats_text_width5_ai;
     static int cheats_text_width6;
 
     static char selection = LIVES;
@@ -480,6 +466,8 @@ void vCheatsTask(void *pvParameters)
     tumGetTextSize((char *)cheats_text3, &cheats_text_width3, NULL);
     tumGetTextSize((char *)cheats_text4, &cheats_text_width4, NULL);
     tumGetTextSize((char *)cheats_text5, &cheats_text_width5, NULL);
+    tumGetTextSize((char *)cheats_text5_ai, &cheats_text_width5_ai, NULL);
+
     tumGetTextSize((char *)cheats_text6, &cheats_text_width6, NULL);
 
     while (1) {
@@ -496,10 +484,20 @@ void vCheatsTask(void *pvParameters)
                     highscore = 0;
                 }
                 fclose(fp);
-                
-                sprintf(highscore_text, "[ %u ]", highscore);
+
+                fp = fopen(highscoreAI_file, "r");
+                if (fp != NULL){
+                    highscoreAI = getw(fp);
+                }else{
+                    // need to create a highscore queue
+                    highscoreAI = 0;
+                }
+                fclose(fp);
 
                 
+                sprintf(highscore_text, "[ %u ]", highscore);
+                sprintf(highscoreAI_text, "[ %u ]", highscoreAI);
+
                 if (xSemaphoreTake(buttons.lock, 0) == pdTRUE) {
                     if (buttons.buttons[KEYCODE(A)] || buttons.buttons[KEYCODE(LEFT)]) {
                         xSemaphoreGive(buttons.lock);
@@ -653,7 +651,7 @@ void vCheatsTask(void *pvParameters)
                                     sprintf(score_text, "< %hu >", score_cheat);
                                 }
                                 break;  
-                            case HIGHSCORE:
+                            case HIGHSCORE_NORMAL:
                                 if (xTaskGetTickCount() - last_change >
                                     STATE_DEBOUNCE_DELAY) {
                                     last_change = xTaskGetTickCount();
@@ -665,7 +663,19 @@ void vCheatsTask(void *pvParameters)
                                     fclose(fp);
 
                                 }
-                                break;                                                                                               
+                                break;
+                            case HIGHSCORE_AI:
+                                if (xTaskGetTickCount() - last_change >
+                                    STATE_DEBOUNCE_DELAY) {
+                                    last_change = xTaskGetTickCount();
+                                    
+                                    fp = fopen(highscoreAI_file, "w");
+                                    if (fp != NULL){
+                                        putw(0, fp);
+                                    }
+                                    fclose(fp);
+                                }
+                                break;                                                                                                
                             case MAIN_MENU:
                                 if (xTaskGetTickCount() - last_change >
                                     STATE_DEBOUNCE_DELAY) {
@@ -731,7 +741,7 @@ void vCheatsTask(void *pvParameters)
                     // LIVES CHEAT
                     tumDrawText((char *)cheats_text1,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
+                                cheats_text_width6,
                                 SCREEN_HEIGHT / 2 - 150, 
                                 White);
                     if (lives_cheat){
@@ -750,7 +760,7 @@ void vCheatsTask(void *pvParameters)
                     // LEVEL CHEAT
                     tumDrawText((char *)cheats_text2,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
+                                cheats_text_width6,
                                 SCREEN_HEIGHT / 2 - 100, 
                                 White);
                     tumDrawText(level_text,
@@ -761,7 +771,7 @@ void vCheatsTask(void *pvParameters)
                     // SCORE CHEAT
                     tumDrawText((char *)cheats_text3,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
+                                cheats_text_width6,
                                 SCREEN_HEIGHT / 2 - 50, 
                                 White);
                     tumDrawText(score_text,
@@ -772,13 +782,13 @@ void vCheatsTask(void *pvParameters)
                     // TURN OFF CHEATS
                     tumDrawText((char *)cheats_text4,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
+                                cheats_text_width6,
                                 SCREEN_HEIGHT / 2, 
                                 White);
-                    // HIGHSCORE RESET
+                    // HIGHSCORE_NORMAL RESET
                     tumDrawText((char *)cheats_text5,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
+                                cheats_text_width6,
                                 SCREEN_HEIGHT / 2 + 50, 
                                 White);
                     tumDrawText(highscore_text,
@@ -786,11 +796,22 @@ void vCheatsTask(void *pvParameters)
                                 cheats_text_width6 / 2 + 38,
                                 SCREEN_HEIGHT / 2 + 50, 
                                 White);
+                    // HIGHSCORE_AI RESET
+                    tumDrawText((char *)cheats_text5_ai,
+                                SCREEN_WIDTH / 2 -
+                                cheats_text_width6,
+                                SCREEN_HEIGHT / 2 + 100, 
+                                White);
+                    tumDrawText(highscoreAI_text,
+                                SCREEN_WIDTH / 2 +
+                                cheats_text_width6 / 2 + 38,
+                                SCREEN_HEIGHT / 2 + 100, 
+                                White);
                     // MAIN MENU
                     tumDrawText((char *)cheats_text6,
                                 SCREEN_WIDTH / 2 -
-                                cheats_text_width6 / 2,
-                                SCREEN_HEIGHT / 2 + 100, 
+                                cheats_text_width6,
+                                SCREEN_HEIGHT / 2 + 150, 
                                 White);
 
                     // draw the highlighted selected text
@@ -798,7 +819,7 @@ void vCheatsTask(void *pvParameters)
                         case LIVES:
                             tumDrawText((char *)cheats_text1,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
+                                        cheats_text_width6,
                                         SCREEN_HEIGHT / 2 - 150, 
                                         Blue);
                             if (lives_cheat){
@@ -818,7 +839,7 @@ void vCheatsTask(void *pvParameters)
                         case LEVEL:
                             tumDrawText((char *)cheats_text2,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
+                                        cheats_text_width6,
                                         SCREEN_HEIGHT / 2 - 100, 
                                         Blue);
                             tumDrawText(level_text,
@@ -830,7 +851,7 @@ void vCheatsTask(void *pvParameters)
                         case SCORE:
                             tumDrawText((char *)cheats_text3,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
+                                        cheats_text_width6,
                                         SCREEN_HEIGHT / 2 - 50, 
                                         Blue);
                             tumDrawText(score_text,
@@ -842,22 +863,29 @@ void vCheatsTask(void *pvParameters)
                         case CHEATS_OFF:
                             tumDrawText((char *)cheats_text4,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
+                                        cheats_text_width6,
                                         SCREEN_HEIGHT / 2, 
                                         Blue);
                             break;  
-                        case HIGHSCORE:
+                        case HIGHSCORE_NORMAL:
                             tumDrawText((char *)cheats_text5,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
+                                        cheats_text_width6,
                                         SCREEN_HEIGHT / 2 + 50, 
                                         Blue);
-                            break;                                                                                               
+                            break;
+                        case HIGHSCORE_AI:
+                            tumDrawText((char *)cheats_text5_ai,
+                                        SCREEN_WIDTH / 2 -
+                                        cheats_text_width6,
+                                        SCREEN_HEIGHT / 2 + 100, 
+                                        Blue);
+                            break;                                                                                                
                         case MAIN_MENU:
                             tumDrawText((char *)cheats_text6,
                                         SCREEN_WIDTH / 2 -
-                                        cheats_text_width6 / 2,
-                                        SCREEN_HEIGHT / 2 + 100, 
+                                        cheats_text_width6,
+                                        SCREEN_HEIGHT / 2 + 150, 
                                         Blue);
                             break;
                         default:
@@ -1056,7 +1084,7 @@ int menuInit(void)
         PRINT_ERROR("Could not open debounceQueue");
         goto err_debouncequeue;
     }
-    gameModeQueue = xQueueCreate(1, sizeof(unsigned int));
+    gameModeQueue = xQueueCreate(1, sizeof(unsigned char));
     if (!gameModeQueue) {
         PRINT_ERROR("Could not open gameModeQueue");
         goto err_gamemodequeue;
