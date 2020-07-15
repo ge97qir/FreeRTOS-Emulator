@@ -26,9 +26,11 @@
 #define UDP_TRANSMIT_PORT 1235
 
 #define RESET 1
-#define EXPLOSION_DELAY 25  // the delay when an enemy or player gets hit by a bullet and explosion happens
+#define EXPLOSION_DELAY 25  // the delay when an explosion happens
 #define SMALLER_HITBOX 5
 #define BUTTON_DEBOUNCE 200
+#define SOUND_BUFFER_DELAY 13
+#define INVADER_INIT_DELAY 8
 
 // PLAYER DIMENSIONS
 #define MY_SHIP_WIDTH 52
@@ -56,7 +58,7 @@
 #define DEAD 1
 #define GAP_SIZE 15 // gap between the invaders
 #define MAX_ENEMY_BULLETS 3
-#define BULLET_MAX_DELAY 2000 // bullet is shot after 2 seconds since the beginning of the game
+#define BULLET_MAX_DELAY 2000
 
 #define INVADER1_POINTS 10
 #define INVADER2_POINTS 20
@@ -309,7 +311,8 @@ void vDrawHelpText(char mode, char difficulty)
             sprintf(str, "AI [L]evel: %d", difficulty + 1);
         
             tumDrawText(str,
-                    SCREEN_WIDTH - text_width1 - DEFAULT_FONT_SIZE * 2.5 + text_width2 + DEFAULT_FONT_SIZE,
+                    SCREEN_WIDTH - text_width1
+                    - DEFAULT_FONT_SIZE * 2.5 + text_width2 + DEFAULT_FONT_SIZE,
                     2 * DEFAULT_FONT_SIZE * 1.5, White);
         }
     }
@@ -615,7 +618,8 @@ void updateInvadersPosition(invaders_t *invaders, unsigned char reset){
                     // if edge was detected move one row lower
                     if (descend){
                         setWallProperty(invaders->enemys[row][col].enemy, 0,
-                                        invaders->enemys[row][col].enemy->y1 + invaders->enemys[row][col].enemy->h,
+                                        invaders->enemys[row][col].enemy->y1 
+                                        + invaders->enemys[row][col].enemy->h,
                                         0, 0, SET_WALL_Y);
                     }
                     // if the invader is still alive increment its position
@@ -650,7 +654,8 @@ void updateInvadersPosition(invaders_t *invaders, unsigned char reset){
                     // if edge was detected also move one row lower
                     if (descend){
                         setWallProperty(invaders->enemys[row][col].enemy, 0,
-                                        invaders->enemys[row][col].enemy->y1 + invaders->enemys[row][col].enemy->h, 
+                                        invaders->enemys[row][col].enemy->y1 
+                                        + invaders->enemys[row][col].enemy->h, 
                                         0, 0, SET_WALL_Y);
                     }
                     // if the invader is still alive increment its position
@@ -749,7 +754,7 @@ unsigned int bulletHitMothership(enemy_t *mothership, bullet_t *bullet_obj){
 }
 
 unsigned int bulletHitInvader(invaders_t *invaders, bullet_t *bullet_obj){
-    // if bulet betweeen x1 and x2 and y1 and y2 make the invader dead (if bullet is inside the invader) 
+    // if bulet betweeen x1 and x2 and y1 and y2 make the invader dead (bullet is inside the invader) 
     for (int row = 0; row < ENEMY_ROWS; row++){
         for (int col = 0; col < ENEMY_COLUMNS; col++){
             if (!invaders->enemys[row][col].dead){
@@ -850,7 +855,8 @@ ball_t *shootBulletInvader(bullet_t *bullet_obj, invaders_t *invaders){
 
 void updateBulletPosition(bullet_t *bullet_obj, unsigned int time_since_last_update){
     // checking if the bullet is inside the "active" field where we are playing the game
-    if (bullet_obj->bullet->y >= (0 + BULLET_RADIUS) && bullet_obj->bullet->y <= (GROUND_POSITION - BULLET_RADIUS)
+    if (bullet_obj->bullet->y >= (0 + BULLET_RADIUS) 
+        && bullet_obj->bullet->y <= (GROUND_POSITION - BULLET_RADIUS)
         && bullet_obj->bullet_state == ATTACKING){
         updateBallPosition(bullet_obj->bullet, time_since_last_update);
     }else{
@@ -868,7 +874,7 @@ void vInvaderNControlTask(void *pvParameters){
 
     // AI VARIABLES
     const char turn_off = OFF;
-    char opponent_mode = 0; // 0: player 1: computer
+    char AI_mode = OFF; // 0: player 1: computer
     char difficulty = 1; // 0: easy 1: normal 2: hard
 
     // DEBOUNCE TIMERS
@@ -881,17 +887,16 @@ void vInvaderNControlTask(void *pvParameters){
     unsigned int prevButtonState = 0;
 
     // CHEATS VARIABLES
-    unsigned short infinite_lives = 0;
+    unsigned short infinite_lives = OFF;
     unsigned short starting_level = 1;
     unsigned short reset_score = 0;
 
     // LEVEL
-    // TO-DO: add predefined constants here
     unsigned char current_lives = 0;
     unsigned short current_level = 1;
-    unsigned short init_game = 0;
-    unsigned short init_invader = 1;
-    unsigned short invader_init_delay = 0;
+    unsigned short init_game = OFF;
+    unsigned short init_invader = ON;
+    unsigned short invader_init_delay = OFF;
 
     // HIGHSCORE file location
     FILE *fp = NULL;
@@ -899,15 +904,17 @@ void vInvaderNControlTask(void *pvParameters){
     //unsigned short highscoreAI;
     char* highscore_file = "../resources/highscore.txt";
     char* highscoreAI_file = "../resources/highscoreAI.txt";
+    
     // BUFFERS for delays
-    // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
-    unsigned short bufferExplosion = 0;
+    // buffer for the explosion of the invader or the player so the game pauses 
+    // or freezes for a moment when the explosion occours
+    unsigned short bufferExplosion = OFF;
     // BUFFER QUEUE is an empty variable to sent through queues to signal events
-    unsigned char bufferQueue = 0;
+    unsigned char bufferQueue = OFF;
 
     // flags if the player or any enemy have been killed to start explosion animation
     // unsigned short player_killed = 0;
-    unsigned short invader_killed = 0;
+    unsigned short invader_killed = OFF;
 
     // variables where the killed invader coordinates are received from a queue
     int killedInvaderRow;
@@ -975,7 +982,8 @@ void vInvaderNControlTask(void *pvParameters){
             }else if (row == 2 || row == 3){
                 invaders.enemys[row][col] = invader2;
                 invaders.enemys[row][col].enemy =         
-                    createWall(((invader1_width - invader2_width) / 2) + col * (invader1_width + GAP_SIZE),
+                    createWall(((invader1_width - invader2_width) / 2) 
+                                + col * (invader1_width + GAP_SIZE),
                                SCREEN_HEIGHT / 2 - row * (2 * invaders_height), 
                                invader2_width, 
                                invaders_height, 
@@ -983,7 +991,8 @@ void vInvaderNControlTask(void *pvParameters){
             }else if (row == 4){
                 invaders.enemys[row][col] = invader3;
                 invaders.enemys[row][col].enemy =         
-                    createWall(((invader1_width - invader3_width) / 2) + col * (invader1_width + GAP_SIZE),
+                    createWall(((invader1_width - invader3_width) / 2) 
+                                + col * (invader1_width + GAP_SIZE),
                                SCREEN_HEIGHT / 2 - row * (2 * invaders_height), 
                                invader3_width, 
                                invaders_height, 
@@ -1005,7 +1014,8 @@ void vInvaderNControlTask(void *pvParameters){
     bunker_t bunker[NUMBER_OF_BUNKERS] = { 0 };
     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
         // setting up the location of individual bunkers
-        bunker[nob].bunker_x_location = (1 + nob) * DISTANCE_BETWEEN_BUNKERS + nob * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH;
+        bunker[nob].bunker_x_location = 
+            (1 + nob) * DISTANCE_BETWEEN_BUNKERS + nob * BUNKER_WIDTH * BUNKER_BLOCK_LENGTH;
         bunker[nob].bunker_y_location = BUNKER_LOCATION_Y; 
         // setting up the individual blocks of the bunkers
         for (int bw = 0; bw < BUNKER_WIDTH; bw++){
@@ -1036,7 +1046,7 @@ void vInvaderNControlTask(void *pvParameters){
                     if (buttons.buttons[KEYCODE(P)]) {
                         xSemaphoreGive(buttons.lock);
                         xQueueSend(BinaryStateQueue, (void *)&turn_off, portMAX_DELAY);
-                        xQueueSend(gameModeQueue, &opponent_mode, portMAX_DELAY);
+                        xQueueSend(gameModeQueue, &AI_mode, portMAX_DELAY);
                         if (PausedStateTask) {
                             vTaskResume(PausedStateTask);
                         }
@@ -1060,7 +1070,7 @@ void vInvaderNControlTask(void *pvParameters){
                         while(xQueueReceive(scoreQueue, &reset_score, 0) == pdTRUE){    
                         }
                         xQueueOverwrite(scoreQueue, &reset_score);
-                        xQueueReceive(gameModeQueue, &opponent_mode, 0);
+                        xQueueReceive(gameModeQueue, &AI_mode, 0);
 
                         current_level = starting_level;
                         current_lives = MAX_PLAYER_LIVES;                  
@@ -1072,7 +1082,7 @@ void vInvaderNControlTask(void *pvParameters){
                         
                         resetInvaders(&invaders);
                         updateInvadersPosition(NULL, RESET);
-                        invader_killed = 0;
+                        invader_killed = OFF;
                         init_invader = 1;
                         invader_init_delay = 0;
                         // RESETING MOTHERSHIP
@@ -1095,10 +1105,10 @@ void vInvaderNControlTask(void *pvParameters){
                         }
 
                         // INITIALISING SEQUENCE (drawing invaders one by one)
-                        init_game = 1;
+                        init_game = ON;
                         
                         // HIGHSCORE RESET  (TO-DO do I even need this?)
-                        if (opponent_mode){
+                        if (AI_mode){
                             fp = fopen(highscoreAI_file, "r");
                             if (fp != NULL){
                                 highscore = getw(fp);
@@ -1126,7 +1136,7 @@ void vInvaderNControlTask(void *pvParameters){
 
                     }
                     // change the level of difficulty of the AI mode
-                    else if (buttons.buttons[KEYCODE(L)] && opponent_mode) {
+                    else if (buttons.buttons[KEYCODE(L)] && AI_mode) {
                         xSemaphoreGive(buttons.lock);
                         if (xTaskGetTickCount() - prevButtonTime > buttonDebounceDelay){
                             difficulty = (difficulty + 1) % 3;
@@ -1143,8 +1153,8 @@ void vInvaderNControlTask(void *pvParameters){
                 // if the game ends go to gave over screen or advance to new level
                 if (!current_lives || invaders.killed_invaders == (ENEMY_ROWS * ENEMY_COLUMNS) 
                     || init_game || invader_killed){
-                    // if anyone was killed go directly to the drawing sequence and do not calculate / update any data
-                    // could do this with multiple tasks with locking or notifyGive etc. TO-DO
+                    // if anyone was killed go directly to the drawing sequence 
+                    // and do not update any data
                     goto draw;
                     
                 }
@@ -1189,7 +1199,7 @@ void vInvaderNControlTask(void *pvParameters){
                                 xSemaphoreGive(player.lock);
                             }
 
-                            if (opponent_mode){
+                            if (AI_mode){
                                 xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                             }
                         }
@@ -1197,7 +1207,7 @@ void vInvaderNControlTask(void *pvParameters){
                     // checking for bunker collisions
                     for (int nob = 0; nob < NUMBER_OF_BUNKERS; nob++){
                         if (bulletHitBunker(&bunker[nob], &my_bullet)){
-                            if (opponent_mode){
+                            if (AI_mode){
                                 xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                             }
                         }
@@ -1208,7 +1218,7 @@ void vInvaderNControlTask(void *pvParameters){
                         // turn on the flag for the animation
                         invader_killed = 1; // could do this qith a queue or sth better
                         tumSoundPlayUserSample("invader_explosion.wav");
-                        if (opponent_mode){
+                        if (AI_mode){
                             xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                         }
                         // if all invaders are killed delete all enemy bullets and players bullet             
@@ -1222,7 +1232,7 @@ void vInvaderNControlTask(void *pvParameters){
                     // if no colisions are detected just increment the bullet's position
                     else{
                         updateBulletPosition(&my_bullet, xLastWakeTime - prevWakeTime);
-                        if (opponent_mode && my_bullet.bullet_state == PASSIVE){
+                        if (AI_mode && my_bullet.bullet_state == PASSIVE){
                             // send information about bullet only if it changes to passive
                             xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                         }
@@ -1284,7 +1294,7 @@ void vInvaderNControlTask(void *pvParameters){
                                         xSemaphoreGive(player.lock);
                                         prevButtonTime = xTaskGetTickCount();
                                         tumSoundPlayUserSample("player_shoot.wav");
-                                        if (opponent_mode){
+                                        if (AI_mode){
                                             xQueueSend(BulletQueue, (void *)&my_bullet.bullet_state, portMAX_DELAY);
                                         }
                                     }
@@ -1312,10 +1322,8 @@ void vInvaderNControlTask(void *pvParameters){
                     }
                 }
 
-                // ***************************** UPDATING POSITIONS OF *****************************
-                // ************************* PLAYER, INVADERS & MOTHERSHIP *************************
+                // ***************************** UPDATING POSITIONS OF INVADERS *****************************
 
-                // UPDATE INVADERS POSITION
                 for(int i = 0; i < current_level; i++){
                     // higher the level more invaders we increment resulting in faster invaders movement
                     updateInvadersPosition(&invaders, 0);
@@ -1337,7 +1345,7 @@ draw:
                                 highscore = player.score;
                                 xSemaphoreGive(player.lock);
                                 // opens a highscore file and edits it
-                                if (opponent_mode){
+                                if (AI_mode){
                                     fp = fopen(highscoreAI_file, "w");
                                     if (fp != NULL){
                                         putw(highscore, fp);
@@ -1389,8 +1397,8 @@ draw:
                                         }
 
                                         // INITIALISING SEQUENCE (drawing invaders one by one)
-                                        init_game = 1;
-                                        init_invader = 1;
+                                        init_game = ON;
+                                        init_invader = ON;
                                         invader_init_delay = 0;
                                         current_level++;
                                         if (MothershipTask){
@@ -1407,7 +1415,7 @@ draw:
                         }
                     }else{
                         vDrawFPS();
-                        vDrawHelpText(opponent_mode, difficulty);
+                        vDrawHelpText(AI_mode, difficulty);
                         vDrawLevel(&current_level);
                         
                         // draws the ground
@@ -1446,13 +1454,13 @@ draw:
                                 }
 
                             }
-                            if (init_invader == (ENEMY_COLUMNS * ENEMY_ROWS) && invader_init_delay == 8){
+                            if (init_invader == (ENEMY_COLUMNS * ENEMY_ROWS) && invader_init_delay == INVADER_INIT_DELAY){
                                 init_invader = 1;
-                                init_game = 0;
+                                init_game = OFF;
                                 invader_init_delay = 0;
                                 xSemaphoreGive(MotherShip.lock);
                                 xSemaphoreGive(player.lock);
-                            }else if(invader_init_delay == 8){
+                            }else if(invader_init_delay == INVADER_INIT_DELAY){
                                 init_invader++;
                                 invader_init_delay = 0;
                             }else{
@@ -1522,8 +1530,8 @@ draw:
 
                             // counter for how log the explosion is displayed
                             if (bufferExplosion == EXPLOSION_DELAY){
-                                invader_killed = 0;
-                                bufferExplosion = 0;
+                                invader_killed = OFF;
+                                bufferExplosion = OFF;
                                 if (xSemaphoreTake(player.lock, portMAX_DELAY) == pdTRUE) {
                                     player.score += *invaders.enemys[killedInvaderRow][killedInvaderCol].points;
                                     xSemaphoreGive(player.lock);
@@ -1567,19 +1575,19 @@ void vPlayerTask(void *pvParameters){
     
     unsigned short updatePeriod = 10;
 
-    unsigned short player_killed = 0;
-    unsigned short reset_score = 0;
+    unsigned short player_killed = OFF;
+    unsigned short reset_score = OFF;
     unsigned short highscore = 0;
-    char opponent_mode = 0; // 0: player 1: computer
+    char AI_mode = OFF; // 0: player 1: computer
 
-    // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
-    unsigned short bufferExplosion = 0;
+    // buffer for the explosion of the invader or the player so the game pauses 
+    // or freezes for a moment when the explosion occours
+    unsigned short bufferExplosion = OFF;
     // LOADING RESCOURCES
     tumSoundLoadUserSample("../resources/player_explosion.wav");
     tumSoundLoadUserSample("../resources/player_shoot.wav");
     image_handle_t player_explosion = tumDrawLoadImage("../resources/player_explosion.png");
     image_handle_t myship = tumDrawLoadImage("../resources/myship_small.bmp");
-    // TO-DO: should define this in constants if the images dont get loaded... or add if else statement
     
     unsigned int myship_height = tumDrawGetLoadedImageHeight(myship);
     unsigned int myship_width = tumDrawGetLoadedImageWidth(myship);
@@ -1626,11 +1634,12 @@ void vPlayerTask(void *pvParameters){
 
                 xQueueReceive(HighscoreQueue, &highscore, 0);
                 player.ship_position = SCREEN_WIDTH / 2;
-                setWallProperty(player.ship, player.ship_position - myship_width / 2, 0, 0, 0, SET_WALL_X);
+                setWallProperty(player.ship, player.ship_position 
+                    - myship_width / 2, 0, 0, 0, SET_WALL_X);
                 player_killed = 0;
             }
 
-            if (xQueueReceive(scoreQueue, &reset_score, 0) == pdTRUE){    // YOU DONT WANT THIS WHEN YOU GO TO NEXT LEVEL
+            if (xQueueReceive(scoreQueue, &reset_score, 0) == pdTRUE){
                 resetPlayerData(&player, &reset_score);
             }
 
@@ -1638,14 +1647,17 @@ void vPlayerTask(void *pvParameters){
                 tumSoundPlayUserSample("player_explosion.wav"); 
             }
 
-            if(xQueueReceive(OpponentModeQueueP, &opponent_mode, 0) == pdTRUE){
-                vTaskDelay(200); // this delay is here because in the main control task there is also a delay every time we change opponent mode
+            if(xQueueReceive(OpponentModeQueueP, &AI_mode, 0) == pdTRUE){
+                vTaskDelay(200); 
+                // this delay is here because in the main control task 
+                // there is also a delay every time we change opponent mode
             }
             // ********************** UPDATING POSITION OF MOTHERSHIP **********************
             if (!player_killed) {
                 xCheckPlayerInput(&player.ship_position, myship_width);
-                setWallProperty(player.ship, player.ship_position - myship_width / 2, 0, 0, 0, SET_WALL_X);
-                if (opponent_mode){
+                setWallProperty(player.ship, player.ship_position 
+                    - myship_width / 2, 0, 0, 0, SET_WALL_X);
+                if (AI_mode){
                     unsigned short player_pos = player.ship->x1;
                     xQueueSend(PlayerPositionQueue, &player_pos, 0);
                 }
@@ -1691,19 +1703,21 @@ void vMothershipTask(void *pvParameters){
 
     unsigned short updatePeriod = 10;
 
-    char opponent_mode = 0; // 0: player 1: computer
+    char AI_mode = OFF; // 0: player 1: computer
     opponent_cmd_t current_key = NONE;
 
-    // buffer so the sound is not repeatedly played from beginning but plays only once it has finished playing
-    unsigned short bufferSound = 0;
-    // buffer for the explosion of the invader or the player so the game pauses / freezes for a moment when the explosion occours
-    unsigned short bufferExplosion = 0;
+    // buffer so the sound is not repeatedly played 
+    // from beginning but plays only once it has finished playing
+    unsigned short bufferSound = OFF;
+    // buffer for the explosion of the invader or the player so the game pauses 
+    // or freezes for a moment when the explosion occours
+    unsigned short bufferExplosion = OFF;
     // buffer for the AI mothership to move into the game screen
-    unsigned short bufferAI = 0;
+    unsigned short bufferAI = OFF;
     // mysteryship debounce
     TickType_t prevMothershipTime = xTaskGetTickCount();
     unsigned int mothership_direction = LEFT;
-    unsigned short mothership_killed = 0;
+    unsigned short mothership_killed = OFF;
     
     // LOADING RESOURCES
     tumSoundLoadUserSample("../resources/mothership.wav"); 
@@ -1743,21 +1757,23 @@ void vMothershipTask(void *pvParameters){
             if (xQueueReceive(ResetMothershipQueue, &mothership_killed, 0) == pdTRUE){
                 resetMothership(&MotherShip, &mothership_direction);
                 prevMothershipTime = xTaskGetTickCount();
-                mothership_killed = 0;
+                mothership_killed = OFF;
             }
             if (xQueueReceive(KilledMothershipQueue, &mothership_killed, 0) == pdTRUE){
                 tumSoundPlayUserSample("invader_explosion.wav"); 
             }
 
-            if(xQueueReceive(OpponentModeQueueM, &opponent_mode, 0) == pdTRUE){
-                vTaskDelay(200); // this delay is here because in the main control task there is also a delay every time we change opponent mode
+            if(xQueueReceive(OpponentModeQueueM, &AI_mode, 0) == pdTRUE){
+                vTaskDelay(200); 
+                // this delay is here because in the main control task
+                // there is also a delay every time we change opponent mode
             }
             
             // ********************** UPDATING POSITION OF MOTHERSHIP **********************
             if (MotherShip.dead == ALIVE){
                 // human mode = 0, computer mode = 1
                 // can change the task maybe for AI separate task than for the normal mode
-                if (opponent_mode){
+                if (AI_mode){
                     // bufferAI loop moves the mothership into the game screen
                     if (bufferAI < 50){
                         updateMothershipPosition(&MotherShip, &mothership_direction);
@@ -1792,7 +1808,7 @@ void vMothershipTask(void *pvParameters){
                     MotherShip.dead = ALIVE;
                     prevMothershipTime = xTaskGetTickCount();
                 }
-                bufferAI = 0;
+                bufferAI = OFF;
                 // reset the counter when a new mothership is created 
                 // so it can be moved into the screen again
             }
@@ -1808,9 +1824,9 @@ void vMothershipTask(void *pvParameters){
                                            MotherShip.enemy->y1);
                     }
                     //TO-DO numbers!!
-                    if (bufferSound == 13){
+                    if (bufferSound == SOUND_BUFFER_DELAY){
                         tumSoundPlayUserSample("mothership.wav");
-                        bufferSound = 0;
+                        bufferSound = OFF;
                         prevMothershipTime = xTaskGetTickCount();
                     }else{
                         bufferSound++;
@@ -1818,12 +1834,13 @@ void vMothershipTask(void *pvParameters){
                 }
                 else if (mothership_killed){
                     tumDrawLoadedImage(invader_explosion,
-                                       MotherShip.enemy->x1 + (mothership_width - invader_explosion_width) / 2,
+                                       MotherShip.enemy->x1 
+                                       + (mothership_width - invader_explosion_width) / 2,
                                        MotherShip.enemy->y1);
                     // counter for how log the explosion is displayed
                     if (bufferExplosion == EXPLOSION_DELAY){
-                        mothership_killed = 0;
-                        bufferExplosion = 0;
+                        mothership_killed = OFF;
+                        bufferExplosion = OFF;
                     }else{
                         bufferExplosion++;
                     }
