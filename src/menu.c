@@ -14,7 +14,7 @@
 
 // Must be before FreeRTOS includes
 #include "main.h"
-#include "games.h" 
+#include "invaders.h" 
 #include "menu.h"
 // FreeRTOS includes
 #include "queue.h"
@@ -86,8 +86,8 @@ void vPausedStateTask(void *pvParameters)
                             if (gameMode){
                                 xQueueSend(BinaryStateQueue, (void *)&turn_on, portMAX_DELAY);
                             }
-                            if (MultiPlayerGame) {
-                                vTaskResume(MultiPlayerGame);
+                            if (InvaderNControlTask) {
+                                vTaskResume(InvaderNControlTask);
                             }
                             if (MothershipTask) {
                                 vTaskResume(MothershipTask);
@@ -215,8 +215,8 @@ void vSinglePlayerMenu(void *pvParameters) {
                         if (xTaskGetTickCount() - last_change >
                             STATE_DEBOUNCE_DELAY) {
                             last_change = xTaskGetTickCount();
-                            if (MultiPlayerGame) {
-                                vTaskResume(MultiPlayerGame);
+                            if (InvaderNControlTask) {
+                                vTaskResume(InvaderNControlTask);
                             }
                             if (MothershipTask) {
                                 vTaskResume(MothershipTask);
@@ -325,8 +325,8 @@ void vMultiPlayerMenu(void *pvParameters) {
                         if (xTaskGetTickCount() - last_change >
                             STATE_DEBOUNCE_DELAY) {
                             last_change = xTaskGetTickCount();
-                            if (MultiPlayerGame) {
-                                vTaskResume(MultiPlayerGame);
+                            if (InvaderNControlTask) {
+                                vTaskResume(InvaderNControlTask);
                                 vTaskResume(MothershipTask);
                                 vTaskResume(PlayerTask);
                             }

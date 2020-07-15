@@ -1,3 +1,11 @@
+/**
+ * @file games.h
+ * @author Luka Keserič
+ * @date 15 July 2020
+ * @brief State machine and screen update mechanism
+ *
+ */
+
 #ifndef __MAIN_H__
 #define __MAIN_H__
 

@@ -13,7 +13,7 @@
 #include "AsyncIO.h"
 
 #include "main.h"
-#include "games.h"
+#include "invaders.h"
 #include "menu.h"
 
 #include "FreeRTOS.h"
@@ -27,13 +27,6 @@
 #define MULTIPLAYER 1
 #define CHEATS 2
 #define EXIT 3
-
-/*
-#define STATE_PLAYING 0
-#define STATE_PAUSED 1
-
-#define STARTING_STATE STATE_PLAYING
-*/
 
 #ifdef TRACE_FUNCTIONS
 #include "tracer.h"
@@ -260,12 +253,6 @@ int main(int argc, char *argv[])
 
     prints("Initializing: ");
 
-    //  Note PRINT_ERROR is not thread safe and is only used before the
-    //  scheduler is started. There are thread safe print functions in
-    //  TUM_Print.h, `prints` and `fprints` that work exactly the same as
-    //  `printf` and `fprintf`. So you can read the documentation on these
-    //  functions to understand the functionality.
-
     if (tumDrawInit(bin_folder_path)) {
         PRINT_ERROR("Failed to intialize drawing");
         goto err_init_drawing;
@@ -280,7 +267,6 @@ int main(int argc, char *argv[])
         PRINT_ERROR("Failed to initialize audio");
         goto err_init_audio;
     }
-
 
     atexit(aIODeinit);
 

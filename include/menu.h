@@ -1,3 +1,11 @@
+/**
+ * @file menu.h
+ * @author Luka Keserič
+ * @date 15 July 2020
+ * @brief menu interface for the game
+ *
+ */
+
 #ifndef __MENU_H__
 #define __MENU_H__
 
@@ -12,6 +20,12 @@
 
 #define SINGLE_PLAYER_MODE 0
 #define MULTIPLAYER_MODE 1
+
+#define mainGENERIC_PRIORITY (tskIDLE_PRIORITY)
+#define mainGENERIC_STACK_SIZE ((unsigned short)2560)
+
+/** HELPER MACRO TO RESOLVE SDL KEYCODES */
+#define KEYCODE(CHAR) SDL_SCANCODE_##CHAR
 
 extern TaskHandle_t PausedStateTask;
 
