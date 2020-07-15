@@ -178,7 +178,6 @@ void vUDPControlTask(void *pvParameters)
 
 
     // initialising structures used by the UDPControlTask
-    // NextKeyQueue and BinaryStateQueue are initialised earlyer (with all the other queues)
     HandleUDP = xSemaphoreCreateMutex();
     if (!HandleUDP) {
         exit(EXIT_FAILURE);
@@ -1071,6 +1070,8 @@ void vInvaderNControlTask(void *pvParameters){
                         }
                         xQueueOverwrite(scoreQueue, &reset_score);
                         xQueueReceive(gameModeQueue, &AI_mode, 0);
+                        xQueueOverwrite(OpponentModeQueueP, &AI_mode);
+                        xQueueOverwrite(OpponentModeQueueM, &AI_mode);
 
                         current_level = starting_level;
                         current_lives = MAX_PLAYER_LIVES;                  
@@ -1592,10 +1593,7 @@ void vPlayerTask(void *pvParameters){
     unsigned int myship_height = tumDrawGetLoadedImageHeight(myship);
     unsigned int myship_width = tumDrawGetLoadedImageWidth(myship);
     // initialising player
-    player.lock = xSemaphoreCreateMutex();
-    if (!player.lock) {
-        exit(EXIT_FAILURE);
-    }
+
     player.ship_position = SCREEN_WIDTH / 2; // this is the position of the middle of the ship
     player.ship =
         createWall(SCREEN_WIDTH / 2 - myship_width / 2,
@@ -1604,28 +1602,7 @@ void vPlayerTask(void *pvParameters){
                    myship_height, 
                    0, White, NULL, NULL);
 
-    // should use binary semaphore here for player and for the mothership
-    KilledPlayerQueue = xQueueCreate(1, sizeof(unsigned char));
-    if (!KilledPlayerQueue) {
-        exit(EXIT_FAILURE);
-    }
-    // should use binary semaphore here for player and for the mothership
-    ResetPlayerQueue = xQueueCreate(1, sizeof(unsigned char));
-    if (!ResetPlayerQueue) {
-        exit(EXIT_FAILURE);
-    }
-    OpponentModeQueueP = xQueueCreate(1, sizeof(unsigned char));
-    if (!OpponentModeQueueP) {
-        exit(EXIT_FAILURE);
-    }
-    HighscoreQueue = xQueueCreate(1, sizeof(unsigned short));
-    if (!HighscoreQueue) {
-        exit(EXIT_FAILURE);
-    }
-    PlayerLivesQueue = xQueueCreate(1, sizeof(unsigned short));
-    if (!PlayerLivesQueue) {
-        exit(EXIT_FAILURE);
-    }
+
 
                         
     while(1){
@@ -1728,10 +1705,7 @@ void vMothershipTask(void *pvParameters){
     unsigned int mothership_height = tumDrawGetLoadedImageHeight(mothership);
     unsigned int mothership_width = tumDrawGetLoadedImageWidth(mothership);
     
-    MotherShip.lock = xSemaphoreCreateMutex();
-    if (!MotherShip.lock) {
-        exit(EXIT_FAILURE);
-    }
+
     MotherShip.dead = DEAD;
     MotherShip.enemy = createWall(- mothership_width,
                             MYSTERY_SHIP_POSITION_Y, 
@@ -1739,18 +1713,7 @@ void vMothershipTask(void *pvParameters){
                             mothership_height, 
                             0, Red, NULL, NULL);
 
-    KilledMothershipQueue = xQueueCreate(1, sizeof(unsigned char));
-    if (!KilledMothershipQueue) {
-        exit(EXIT_FAILURE);
-    }
-    ResetMothershipQueue = xQueueCreate(1, sizeof(unsigned char));
-    if (!ResetMothershipQueue) {
-        exit(EXIT_FAILURE);
-    }
-    OpponentModeQueueM = xQueueCreate(1, sizeof(unsigned char));
-    if (!OpponentModeQueueM) {
-        exit(EXIT_FAILURE);
-    }
+
 
     while(1){
         if (xSemaphoreTake(MotherShip.lock, portMAX_DELAY) == pdTRUE) {
@@ -1861,6 +1824,72 @@ int gamesInit(void)
 {
     //Random numbers
     srand(time(NULL));
+    // PlayerTask structures
+    player.lock = xSemaphoreCreateMutex();
+    if (!player.lock) {
+        exit(EXIT_FAILURE);
+    }
+    // should use binary semaphore here for player and for the mothership
+    KilledPlayerQueue = xQueueCreate(1, sizeof(unsigned char));
+    if (!KilledPlayerQueue) {
+        exit(EXIT_FAILURE);
+    }
+    // should use binary semaphore here for player and for the mothership
+    ResetPlayerQueue = xQueueCreate(1, sizeof(unsigned char));
+    if (!ResetPlayerQueue) {
+        exit(EXIT_FAILURE);
+    }
+    OpponentModeQueueP = xQueueCreate(1, sizeof(unsigned char));
+    if (!OpponentModeQueueP) {
+        exit(EXIT_FAILURE);
+    }
+    HighscoreQueue = xQueueCreate(1, sizeof(unsigned short));
+    if (!HighscoreQueue) {
+        exit(EXIT_FAILURE);
+    }
+    PlayerLivesQueue = xQueueCreate(1, sizeof(unsigned short));
+    if (!PlayerLivesQueue) {
+        exit(EXIT_FAILURE);
+    }
+    // MothershipTask structures
+    MotherShip.lock = xSemaphoreCreateMutex();
+    if (!MotherShip.lock) {
+        exit(EXIT_FAILURE);
+    }
+    KilledMothershipQueue = xQueueCreate(1, sizeof(unsigned char));
+    if (!KilledMothershipQueue) {
+        exit(EXIT_FAILURE);
+    }
+    ResetMothershipQueue = xQueueCreate(1, sizeof(unsigned char));
+    if (!ResetMothershipQueue) {
+        exit(EXIT_FAILURE);
+    }
+    OpponentModeQueueM = xQueueCreate(1, sizeof(unsigned char));
+    if (!OpponentModeQueueM) {
+        exit(EXIT_FAILURE);
+    }
+
+    // initialising structures used by the UDPControlTask
+    HandleUDP = xSemaphoreCreateMutex();
+    if (!HandleUDP) {
+        exit(EXIT_FAILURE);
+    }
+    PlayerPositionQueue = xQueueCreate(5, sizeof(unsigned long));
+    if (!PlayerPositionQueue) {
+        exit(EXIT_FAILURE);
+    }
+    MothershipPositionQueue = xQueueCreate(5, sizeof(unsigned long));
+    if (!MothershipPositionQueue) {
+        exit(EXIT_FAILURE);
+    }
+    BulletQueue = xQueueCreate(10, sizeof(unsigned char));
+    if (!BulletQueue) {
+        exit(EXIT_FAILURE);
+    }
+    DifficultyQueue = xQueueCreate(10, sizeof(unsigned char));
+    if (!DifficultyQueue) {
+        exit(EXIT_FAILURE);
+    }
 
     BinaryStateQueue = xQueueCreate(10, sizeof(unsigned char));
     if (!BinaryStateQueue) {

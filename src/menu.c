@@ -215,17 +215,11 @@ void vSinglePlayerMenu(void *pvParameters) {
                         if (xTaskGetTickCount() - last_change >
                             STATE_DEBOUNCE_DELAY) {
                             last_change = xTaskGetTickCount();
+                            xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
+                            xQueueSendToFront(gameModeQueue, &gameModeSingle, portMAX_DELAY);
                             if (InvaderNControlTask) {
                                 vTaskResume(InvaderNControlTask);
                             }
-                            if (MothershipTask) {
-                                vTaskResume(MothershipTask);
-                            }
-                            if (PlayerTask) {
-                                vTaskResume(PlayerTask);
-                            }
-                            xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
-                            xQueueSendToFront(gameModeQueue, &gameModeSingle, portMAX_DELAY);
                             if (SinglePlayerMenu) {
                                 vTaskSuspend(SinglePlayerMenu);
                             }
@@ -325,14 +319,12 @@ void vMultiPlayerMenu(void *pvParameters) {
                         if (xTaskGetTickCount() - last_change >
                             STATE_DEBOUNCE_DELAY) {
                             last_change = xTaskGetTickCount();
-                            if (InvaderNControlTask) {
-                                vTaskResume(InvaderNControlTask);
-                                vTaskResume(MothershipTask);
-                                vTaskResume(PlayerTask);
-                            }
-                            // queue or smphr for restarting mothership
                             xQueueSendToFront(restartGameQueue, &restartSignal, portMAX_DELAY);
                             xQueueSendToFront(gameModeQueue, &gameModeMulti, portMAX_DELAY);
+
+                            if (InvaderNControlTask) {
+                                vTaskResume(InvaderNControlTask);
+                            }
                             if (MultiPlayerMenu) {
                                 vTaskSuspend(MultiPlayerMenu);
                             }
